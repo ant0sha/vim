@@ -1290,9 +1290,12 @@ key_press_event(GtkWidget *widget UNUSED,
 		string[2] = MOD_MASK_CTRL;
 		string[3] = '[';
 		len = 4;
-	} else {
-		return TRUE;
+		add_to_input_buf(string, len);
+		// workaround better to terminate here because otherwise our
+		// keys are modified by the code afterwards and are not what
+		// we expect them to be at the very end
 	}
+	return TRUE;
     }
 
     // For some keys a shift modifier is translated into another key code.
