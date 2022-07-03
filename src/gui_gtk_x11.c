@@ -1220,7 +1220,7 @@ key_press_event(GtkWidget *widget UNUSED,
           for (ib=0; ib < len; ++ib) {
             fprintf(ans_file, "%d ", string2[ib]);
           }
-          fprintf(ans_file, " [%04xd] \n", key_sym);
+          fprintf(ans_file, " [%04x] \n", key_sym);
 	  fflush(ans_file);
 	}
 
@@ -1281,8 +1281,19 @@ key_press_event(GtkWidget *widget UNUSED,
 	}
     }
 
-    if (len == 0)   // Unrecognized key
-	return TRUE;
+    if (len == 0) {   // Unrecognized key
+        // Belgian Ctrl+[ workaround
+	if (key_sym == GDK_KEY_dead_circumflex) {
+		if (ans_file) { fprintf(ans_file, "Belgian(only?) GDK_KEY_dead_circumflex -> Ctrl+[ workaround\n"); fflush(ans_file); }
+		string[0] = CSI;
+		string[1] = KS_MODIFIER;
+		string[2] = MOD_MASK_CTRL;
+		string[3] = '[';
+		len = 4;
+	} else {
+		return TRUE;
+	}
+    }
 
     // For some keys a shift modifier is translated into another key code.
     if (len == -3)
