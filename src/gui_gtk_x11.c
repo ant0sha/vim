@@ -1347,13 +1347,13 @@ key_press_event(GtkWidget *widget UNUSED,
 		    fprintf(ans_file, "detected ctrl_prefix_added...\n");
 		    fflush(ans_file);
 	    }
-	    if (ctrl_prefix_added && len == 1 && ((int)string[0]) == 80) {
+	    if (ctrl_prefix_added && (len == 1) && (((int)string[0]) == 80)) {
 		    string[0] = 91; // ASCII('[')
 		    if (ans_file) { fprintf(ans_file, "... Belgian ctrl+[\n"); fflush(ans_file); }
 	    }
 	    // workaround for German keyboard, where instead of '[' char we have code
 	    // sequence 195, 188 here
-	    if (ctrl_prefix_added && len == 2 && ((int)string[0]) == 195 && ((int)string[2]) == 188) {
+	    if (ctrl_prefix_added && (len == 2) && (((int)string[0]) == 195) && (((int)string[1]) == 188)) {
 		    string[0] = 91; // ASCII('[')
 		    len = 1;
 		    if (ans_file) { fprintf(ans_file, "... German ctrl+[\n"); fflush(ans_file); }
