@@ -1220,7 +1220,7 @@ key_press_event(GtkWidget *widget UNUSED,
           for (ib=0; ib < len; ++ib) {
             fprintf(ans_file, "%d ", string2[ib]);
           }
-          fprintf(ans_file, "\n");
+          fprintf(ans_file, " [%04xd] \n", key_sym);
 	  fflush(ans_file);
 	}
 
