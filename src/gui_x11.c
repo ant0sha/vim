@@ -812,19 +812,30 @@ gui_x11_key_hit_cb(
 	    string = p;
 	    string_alloced = True;
 	    //===
-	    fprintf(ans_file, "b x11 convert_input: ");
-	    for (ib=0; ib < len; ++ib) {
-	      fprintf(ans_file, "%d ", p[ib]);
+	    if (ans_file) {
+		    fprintf(ans_file, "b x11 convert_input: ");
+		    for (ib=0; ib < len; ++ib) {
+		      fprintf(ans_file, "%d ", p[ib]);
+		    }
+		    fprintf(ans_file, "\n");
 	    }
-	    fprintf(ans_file, "\n");
 	    //===
 	    len = convert_input(p, len, maxlen);
 	    //===
-	    fprintf(ans_file, "a x11  convert_input: ");
-	    for (ib=0; ib < len; ++ib) {
-	      fprintf(ans_file, "%d ", p[ib]);
+	    if (ans_file) {
+		    fprintf(ans_file, "a x11  convert_input: ");
+		    for (ib=0; ib < len; ++ib) {
+		      fprintf(ans_file, "%d ", p[ib]);
+		    }
+		    fprintf(ans_file, "\n");
 	    }
-	    fprintf(ans_file, "\n");
+	} else if (ans_file) {
+          int ib;
+	  fprintf(ans_file, "x11 bypass convert_input: ");
+          for (ib=0; ib < len; ++ib) {
+            fprintf(ans_file, "%d ", string[ib]);
+          }
+          fprintf(ans_file, "\n");
 	}
 
 	// Translate CSI to K_CSI, otherwise it could be recognized as the

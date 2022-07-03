@@ -1189,19 +1189,31 @@ key_press_event(GtkWidget *widget UNUSED,
 	// No need to convert pure ASCII anyway, thus the len > 1 check.
 	if (len > 1 && input_conv.vc_type != CONV_NONE) {
             int ib;
-	    fprintf(ans_file, "b gtk convert_input: ");
-	    for (ib=0; ib < len; ++ib) {
-	      fprintf(ans_file, "%d ", string2[ib]);
+	    if (ans_file) {
+		    fprintf(ans_file, "b gtk convert_input: ");
+		    for (ib=0; ib < len; ++ib) {
+		      fprintf(ans_file, "%d ", string2[ib]);
+		    }
+		    fprintf(ans_file, "\n");
 	    }
-	    fprintf(ans_file, "\n");
 	    //===
 	    len = convert_input(string2, len, sizeof(string2));
 	    //===
-	    fprintf(ans_file, "a gtk  convert_input: ");
-	    for (ib=0; ib < len; ++ib) {
-	      fprintf(ans_file, "%d ", string2[ib]);
+	    if (ans_file) {
+		    fprintf(ans_file, "a gtk  convert_input: ");
+		    for (ib=0; ib < len; ++ib) {
+		      fprintf(ans_file, "%d ", string2[ib]);
+		    }
+		    fprintf(ans_file, "\n");
 	    }
-	    fprintf(ans_file, "\n");
+	}
+	else if (ans_file) {
+          int ib;
+	  fprintf(ans_file, "gtk bypass convert_input: ");
+          for (ib=0; ib < len; ++ib) {
+            fprintf(ans_file, "%d ", string2[ib]);
+          }
+          fprintf(ans_file, "\n");
 	}
 
 	s = string2;
