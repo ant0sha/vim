@@ -1172,6 +1172,7 @@ key_press_event(GtkWidget *widget UNUSED,
     if (xim_queue_key_press_event(event, TRUE)) {
         if (ans_file) {
     	    fprintf(ans_file, "xim_queue_key_press_event bypass\n");
+	    fflush(ans_file);
 	}
 	return TRUE;
     }
@@ -1210,6 +1211,7 @@ key_press_event(GtkWidget *widget UNUSED,
 		      fprintf(ans_file, "%d ", string2[ib]);
 		    }
 		    fprintf(ans_file, "\n");
+		    fflush(ans_file);
 	    }
 	}
 	else if (ans_file) {
@@ -1219,6 +1221,7 @@ key_press_event(GtkWidget *widget UNUSED,
             fprintf(ans_file, "%d ", string2[ib]);
           }
           fprintf(ans_file, "\n");
+	  fflush(ans_file);
 	}
 
 	s = string2;
@@ -1339,12 +1342,23 @@ key_press_event(GtkWidget *widget UNUSED,
 
     // workaround for Belgium keyboard, where instead of '[' char we have code
     // 80 here
-    if (ctrl_prefix_added && len == 1 && string[0] == 80)
-	    string[0] = 91; // ASCII('[')
-    // workaround for German keyboard, where instead of '[' char we have code
-    // sequence 195, 188 here
-    if (ctrl_prefix_added && len == 2 && string[0] == 195 && string[2] == 188)
-	    string[0] = 91; // ASCII('[')
+    if (ctrl_prefix_added) {
+	    if (ans_file) {
+		    fprintf(ans_file, "detected ctrl_prefix_added...\n");
+		    fflush(ans_file);
+	    }
+	    if (ctrl_prefix_added && len == 1 && ((int)string[0]) == 80) {
+		    string[0] = 91; // ASCII('[')
+		    if (ans_file) { fprintf(ans_file, "... Belgian ctrl+[\n"); fflush(ans_file); }
+	    }
+	    // workaround for German keyboard, where instead of '[' char we have code
+	    // sequence 195, 188 here
+	    if (ctrl_prefix_added && len == 2 && ((int)string[0]) == 195 && ((int)string[2]) == 188) {
+		    string[0] = 91; // ASCII('[')
+		    len = 1;
+		    if (ans_file) { fprintf(ans_file, "... German ctrl+[\n"); fflush(ans_file); }
+	    }
+    }
     add_to_input_buf(string, len);
 
     // blank out the pointer if necessary
