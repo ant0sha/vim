@@ -76,6 +76,8 @@
 
 Widget vimShell = (Widget)0;
 
+extern FILE* ans_file; // defined in ui.c
+
 static Atom   wm_atoms[2];	// Window Manager Atoms
 #define DELETE_WINDOW_IDX 0	// index in wm_atoms[] for WM_DELETE_WINDOW
 #define SAVE_YOURSELF_IDX 1	// index in wm_atoms[] for WM_SAVE_YOURSELF
@@ -802,13 +804,27 @@ gui_x11_key_hit_cb(
 	{
 	    int		maxlen = len * 4 + 40;	// guessed
 	    char_u	*p = (char_u *)XtMalloc(maxlen);
+	    int ib;
 
 	    mch_memmove(p, string, len);
 	    if (string_alloced)
 		XtFree((char *)string);
 	    string = p;
 	    string_alloced = True;
+	    //===
+	    fprintf(ans_file, "b x11 convert_input: ");
+	    for (ib=0; ib < len; ++ib) {
+	      fprintf(ans_file, "%d ", p[ib]);
+	    }
+	    fprintf(ans_file, "\n");
+	    //===
 	    len = convert_input(p, len, maxlen);
+	    //===
+	    fprintf(ans_file, "a x11  convert_input: ");
+	    for (ib=0; ib < len; ++ib) {
+	      fprintf(ans_file, "%d ", p[ib]);
+	    }
+	    fprintf(ans_file, "\n");
 	}
 
 	// Translate CSI to K_CSI, otherwise it could be recognized as the

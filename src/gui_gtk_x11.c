@@ -99,6 +99,8 @@ extern void bonobo_dock_item_set_behavior(BonoboDockItem *dock_item, BonoboDockI
 # include <X11/Sunkeysym.h>
 #endif
 
+extern FILE* ans_file; // defined in ui.c
+
 /*
  * Easy-to-use macro for multihead support.
  */
@@ -1185,8 +1187,22 @@ key_press_event(GtkWidget *widget UNUSED,
 
 	// Careful: convert_input() doesn't handle the NUL character.
 	// No need to convert pure ASCII anyway, thus the len > 1 check.
-	if (len > 1 && input_conv.vc_type != CONV_NONE)
+	if (len > 1 && input_conv.vc_type != CONV_NONE) {
+            int ib;
+	    fprintf(ans_file, "b gtk convert_input: ");
+	    for (ib=0; ib < len; ++ib) {
+	      fprintf(ans_file, "%d ", string2[ib]);
+	    }
+	    fprintf(ans_file, "\n");
+	    //===
 	    len = convert_input(string2, len, sizeof(string2));
+	    //===
+	    fprintf(ans_file, "a gtk  convert_input: ");
+	    for (ib=0; ib < len; ++ib) {
+	      fprintf(ans_file, "%d ", string2[ib]);
+	    }
+	    fprintf(ans_file, "\n");
+	}
 
 	s = string2;
 	d = string;
