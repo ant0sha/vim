@@ -1168,8 +1168,12 @@ key_press_event(GtkWidget *widget UNUSED,
     state = event->state;
 
 #ifdef FEAT_XIM
-    if (xim_queue_key_press_event(event, TRUE))
+    if (xim_queue_key_press_event(event, TRUE)) {
+        if (ans_file) {
+    	    fprintf(ans_file, "xim_queue_key_press_event bypass\n");
+	}
 	return TRUE;
+    }
 #endif
 
 #ifdef SunXK_F36
