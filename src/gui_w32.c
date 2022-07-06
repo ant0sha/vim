@@ -1870,8 +1870,12 @@ outputDeadKey_rePost(MSG originalMsg)
 {
     static MSG deadCharExpel;
 
+    if (ans_file) { fprintf(ans_file, "outputDeadKey_rePost?\n"); fflush(ans_file); }
+
     if (!dead_key)
 	return;
+
+    if (ans_file) { fprintf(ans_file, "outputDeadKey_rePost - we mean it really!\n"); fflush(ans_file); }
 
     dead_key = 0;
 
@@ -2101,7 +2105,7 @@ process_message(void)
 	    // Translate the virtual key according to the current keyboard
 	    // layout.
 	    scan_code = MapVirtualKey(vk, MAPVK_VK_TO_VSC);
-	    if (ans_file) { fprintf(ans_file, "....MapVirtualKey=>%d\n", scan_code); fflush(ans_file); }
+	    if (ans_file) { fprintf(ans_file, "....MapVirtualKey %d=>%d\n", vk, scan_code); fflush(ans_file); }
 	    // Convert the scan-code into a sequence of zero or more unicode
 	    // codepoints.
 	    // If this is a dead key ToUnicode returns a negative value.
@@ -2111,11 +2115,24 @@ process_message(void)
 
 	    if (len <= 0) {
 		if (ans_file) { fprintf(ans_file, "....recognized as dead_key? len=%d\n", len); fflush(ans_file); }
-		return;
+		// ans: experimental
+		if (vk != 0xff
+			&& (GetKeyState(VK_CONTROL) & 0x8000)
+			&& !(GetKeyState(VK_SHIFT) & 0x8000)
+			&& !(GetKeyState(VK_MENU) & 0x8000))
+		{
+		    if (ans_file) { fprintf(ans_file, ".....calling TranslateMessage()...\n"); fflush(ans_file); }
+		    TranslateMessage(&msg);
+		}
+		else
+		{
+		    // as in original 9.0.0044 code, bypass dispatch final DispatchMessageW!
+		    return;
+		}
 	    }
 
 	    // Post the message as TranslateMessage would do.
-	    if (msg.message == WM_KEYDOWN)
+	    else if (msg.message == WM_KEYDOWN)
 	    {
 		for (i = 0; i < len; i++) {
 		    if (ans_file) { fprintf(ans_file, "....feeding WM_CHAR %d\n", ch[i]); fflush(ans_file); }
@@ -4701,8 +4718,8 @@ _WndProc(
     WPARAM wParam,
     LPARAM lParam)
 {
-    // ch_log(NULL, "WndProc: hwnd = %08x, msg = %x, wParam = %x, lParam = %x",
-	    // hwnd, uMsg, wParam, lParam);
+    if (ans_file) { fprintf(ans_file, "WndProc: hwnd = %08x, msg = %x, wParam = %x, lParam = %lx",
+	    hwnd, uMsg, wParam, lParam); fflush(ans_file); }
 
     HandleMouseHide(uMsg, lParam);
 
