@@ -44,6 +44,8 @@ static int gui_mswin_get_menu_height(int fix_window);
 # define gui_mswin_get_menu_height(fix_window)	0
 #endif
 
+extern FILE *ans_file;
+
 #if defined(FEAT_RENDER_OPTIONS) || defined(PROTO)
     int
 gui_mch_set_rendering_options(char_u *s)
@@ -729,6 +731,9 @@ _OnTimer(
 	s_wait_timer = 0;
 }
 
+    static int
+get_active_modifiers(void);
+
     static void
 _OnDeadChar(
     HWND hwnd UNUSED,
@@ -736,6 +741,11 @@ _OnDeadChar(
     int cRepeat UNUSED)
 {
     dead_key = 1;
+    if (ans_file) {
+	int modifiers = get_active_modifiers();
+	fprintf(ans_file, "_ODC: %d, mods=%d\n", ch, modifiers);
+	fflush(ans_file);
+    }
 }
 
 /*
@@ -870,13 +880,17 @@ _OnChar(
 
     modifiers = get_active_modifiers();
 
+    if (ans_file) { fprintf(ans_file, "b simlpl_k: %d, %d; ", ch, modifiers); }
     ch = simplify_key(ch, &modifiers);
+    if (ans_file) { fprintf(ans_file, "a: %d, %d; ", ch, modifiers); }
     // remove the SHIFT modifier for keys where it's already included, e.g.,
     // '(' and '*'
     modifiers = may_remove_shift_modifier(modifiers, ch);
+    if (ans_file) { fprintf(ans_file, "a rm_s_m: %d; ", ch); }
 
     // Unify modifiers somewhat.  No longer use ALT to set the 8th bit.
     ch = extract_modifiers(ch, &modifiers, FALSE, NULL);
+    if (ans_file) { fprintf(ans_file, "a extr_m: %d, %d\n", ch, modifiers); }
     if (ch == CSI)
 	ch = K_CSI;
 
@@ -889,10 +903,12 @@ _OnChar(
     }
 
     len = char_to_string(ch, string, 40, FALSE);
+    if (ans_file) { int c; fprintf(ans_file, "after c2s: %d, ", ch); for(c=0;c<len;++c) { fprintf(ans_file, "%d ", string[c]); }; fprintf(ans_file, "\n"); fflush(ans_file); }
     if (len == 1 && string[0] == Ctrl_C && ctrl_c_interrupts)
     {
 	trash_input_buf();
 	got_int = TRUE;
+	if (ans_file) { fprintf(ans_file, "got_int\n"); fflush(ans_file); }
     }
 
     add_to_input_buf(string, len);
@@ -919,13 +935,17 @@ _OnSysChar(
     // that the system distinguishes Alt-a and Alt-A (Alt-Shift-a unless
     // CAPSLOCK is pressed) at this point.
     modifiers = get_active_modifiers();
+    if (ans_file) { fprintf(ans_file, "SYS b simlpl_k: %d, %d; ", ch, modifiers); }
     ch = simplify_key(ch, &modifiers);
+    if (ans_file) { fprintf(ans_file, "a: %d, %d; ", ch, modifiers); }
     // remove the SHIFT modifier for keys where it's already included, e.g.,
     // '(' and '*'
     modifiers = may_remove_shift_modifier(modifiers, ch);
+    if (ans_file) { fprintf(ans_file, "a rm_s_m: %d; ", ch); }
 
     // Unify modifiers somewhat.  No longer use ALT to set the 8th bit.
     ch = extract_modifiers(ch, &modifiers, FALSE, NULL);
+    if (ans_file) { fprintf(ans_file, "a extr_m: %d, %d\n", ch, modifiers); }
     if (ch == CSI)
 	ch = K_CSI;
 
@@ -947,7 +967,9 @@ _OnSysChar(
     {
 	// Although the documentation isn't clear about it, we assume "ch" is
 	// a Unicode character.
+	int l0 = len;
 	len += char_to_string(ch, string + len, 40 - len, TRUE);
+	if (ans_file) { int c; fprintf(ans_file, "SYS after c2s: %d, ", ch); for(c=l0;c<len;++c) { fprintf(ans_file, "%d ", string[c]); }; fprintf(ans_file, "\n"); fflush(ans_file); }
     }
 
     add_to_input_buf(string, len);
@@ -1921,6 +1943,7 @@ process_message(void)
     if (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN)
     {
 	vk = (int) msg.wParam;
+        if (ans_file) { fprintf(ans_file, "WM_[SY]KD\n"); fflush(ans_file); }
 
 	/*
 	 * Handle dead keys in special conditions in other cases we let Windows
@@ -1979,6 +2002,7 @@ process_message(void)
 	// This is an IME event or a synthetic keystroke, let Windows handle it.
 	if (vk == VK_PROCESSKEY || vk == VK_PACKET)
 	{
+	    if (ans_file) { fprintf(ans_file, "..VK_PROCESSKEY||PACKET\n"); fflush(ans_file); }
 	    TranslateMessage(&msg);
 	    return;
 	}
@@ -2059,6 +2083,7 @@ process_message(void)
 
 	    // Construct the state table with only a few modifiers, we don't
 	    // really care about the presence of Ctrl/Alt as those modifiers are
+	    if (ans_file) { fprintf(ans_file, "...Not a special key. (big diff to v8_2_4005)\n"); fflush(ans_file); }
 	    // handled by Vim separately.
 	    memset(keyboard_state, 0, 256);
 	    if (GetKeyState(VK_SHIFT) & 0x8000)
@@ -2076,6 +2101,7 @@ process_message(void)
 	    // Translate the virtual key according to the current keyboard
 	    // layout.
 	    scan_code = MapVirtualKey(vk, MAPVK_VK_TO_VSC);
+	    if (ans_file) { fprintf(ans_file, "....MapVirtualKey=>%d\n", scan_code); fflush(ans_file); }
 	    // Convert the scan-code into a sequence of zero or more unicode
 	    // codepoints.
 	    // If this is a dead key ToUnicode returns a negative value.
@@ -2083,19 +2109,25 @@ process_message(void)
 		    0);
 	    dead_key = len < 0;
 
-	    if (len <= 0)
+	    if (len <= 0) {
+		if (ans_file) { fprintf(ans_file, "....recognized as dead_key? len=%d\n", len); fflush(ans_file); }
 		return;
+	    }
 
 	    // Post the message as TranslateMessage would do.
 	    if (msg.message == WM_KEYDOWN)
 	    {
-		for (i = 0; i < len; i++)
+		for (i = 0; i < len; i++) {
+		    if (ans_file) { fprintf(ans_file, "....feeding WM_CHAR %d\n", ch[i]); fflush(ans_file); }
 		    PostMessageW(msg.hwnd, WM_CHAR, ch[i], msg.lParam);
+		}
 	    }
 	    else
 	    {
-		for (i = 0; i < len; i++)
+		for (i = 0; i < len; i++) {
+		    if (ans_file) { fprintf(ans_file, "....feeding WM_SYSCHAR %d\n", ch[i]); fflush(ans_file); }
 		    PostMessageW(msg.hwnd, WM_SYSCHAR, ch[i], msg.lParam);
+		}
 	    }
 	}
     }
@@ -5581,6 +5613,8 @@ _OnImeNotify(HWND hWnd, DWORD dwCommand, DWORD dwData UNUSED)
     LRESULT lResult = 0;
     HIMC hImc;
 
+    if (ans_file) { fprintf(ans_file, "_OnImeNotify\n"); fflush(ans_file); }
+
     if (!pImmGetContext || (hImc = pImmGetContext(hWnd)) == (HIMC)0)
 	return lResult;
     switch (dwCommand)
@@ -5634,6 +5668,8 @@ _OnImeComposition(HWND hwnd, WPARAM dbcs UNUSED, LPARAM param)
 {
     char_u	*ret;
     int		len;
+
+    if (ans_file) { fprintf(ans_file, "_OnImeComposition\n"); fflush(ans_file); }
 
     if ((param & GCS_RESULTSTR) == 0) // Composition unfinished.
 	return 0;
