@@ -42,6 +42,8 @@ static void directx_binddc(void);
 static int gui_mswin_get_menu_height(int fix_window);
 #endif
 
+extern FILE *ans_file;
+
 #if defined(FEAT_RENDER_OPTIONS) || defined(PROTO)
     int
 gui_mch_set_rendering_options(char_u *s)
@@ -684,6 +686,26 @@ _OnTimer(
 	s_wait_timer = 0;
 }
 
+    static int
+get_active_modifiers(void)
+{
+    int modifiers = 0;
+
+    if (GetKeyState(VK_CONTROL) & 0x8000)
+	modifiers |= MOD_MASK_CTRL;
+    if (GetKeyState(VK_SHIFT) & 0x8000)
+	modifiers |= MOD_MASK_SHIFT;
+    // Windows handles Ctrl + Alt as AltGr and vice-versa. We can distinguish
+    // the two cases by checking whether the left or the right Alt key is
+    // pressed.
+    if (GetKeyState(VK_LMENU) & 0x8000)
+	modifiers |= MOD_MASK_ALT;
+    if ((modifiers & MOD_MASK_CTRL) && (GetKeyState(VK_RMENU) & 0x8000))
+	modifiers &= ~MOD_MASK_CTRL;
+
+    return modifiers;
+}
+
     static void
 _OnDeadChar(
     HWND hwnd UNUSED,
@@ -691,6 +713,11 @@ _OnDeadChar(
     int cRepeat UNUSED)
 {
     dead_key = 1;
+    if (ans_file) {
+	int modifiers = get_active_modifiers();
+	fprintf(ans_file, "_ODC: %d, mods=%d\n", ch, modifiers);
+	fflush(ans_file);
+    }
 }
 
 /*
@@ -801,11 +828,14 @@ _OnChar(
 
     dead_key = 0;
 
+    if (ans_file) { fprintf(ans_file, "c: %d; ", ch); }
     len = char_to_string(ch, string, 40, FALSE);
+    if (ans_file) { int c; fprintf(ans_file, "after c2s: %d,{", ch); for(c=0;c<len;++c) { fprintf(ans_file, "%d ", string[c]); }; fprintf(ans_file, "}\n"); fflush(ans_file); }
     if (len == 1 && string[0] == Ctrl_C && ctrl_c_interrupts)
     {
 	trash_input_buf();
 	got_int = TRUE;
+	if (ans_file) { fprintf(ans_file, "got_int\n"); fflush(ans_file); }
     }
 
     add_to_input_buf(string, len);
@@ -839,13 +869,17 @@ _OnSysChar(
     if (GetKeyState(VK_CONTROL) & 0x8000)
 	modifiers |= MOD_MASK_CTRL;
 
+    if (ans_file) { fprintf(ans_file, "SYS b simlpl_k: %d, %d; ", ch, modifiers); }
     ch = simplify_key(ch, &modifiers);
+    if (ans_file) { fprintf(ans_file, "a: %d, %d; ", ch, modifiers); }
     // remove the SHIFT modifier for keys where it's already included, e.g.,
     // '(' and '*'
     modifiers = may_remove_shift_modifier(modifiers, ch);
+    if (ans_file) { fprintf(ans_file, "a rm_s_m: %d, %d; ", ch, modifiers); }
 
     // Unify modifiers somewhat.  No longer use ALT to set the 8th bit.
     ch = extract_modifiers(ch, &modifiers, FALSE, NULL);
+    if (ans_file) { fprintf(ans_file, "a extr_m: %d, %d\n", ch, modifiers); }
     if (ch == CSI)
 	ch = K_CSI;
 
@@ -862,12 +896,15 @@ _OnSysChar(
 	string[len++] = CSI;
 	string[len++] = K_SECOND((int)ch);
 	string[len++] = K_THIRD((int)ch);
+        if (ans_file) { fprintf(ans_file, "SYS IS_SPECIAL %d, %d, %d\n", string[len-3], string[len-2], string[len-1]); fflush(ans_file); }
     }
     else
     {
 	// Although the documentation isn't clear about it, we assume "ch" is
 	// a Unicode character.
+ 	int l0 = len;
 	len += char_to_string(ch, string + len, 40 - len, TRUE);
+	if (ans_file) { int c; fprintf(ans_file, "SYS after c2s: %d, {", ch); for(c=l0;c<len;++c) { fprintf(ans_file, "%d ", string[c]); }; fprintf(ans_file, "}\n"); fflush(ans_file); }
     }
 
     add_to_input_buf(string, len);
@@ -1761,6 +1798,8 @@ outputDeadKey_rePost(MSG originalMsg)
 {
     static MSG deadCharExpel;
 
+    if (ans_file) { fprintf(ans_file, "outputDeadKey_rePost\n"); fflush(ans_file); }
+
     if (!dead_key)
 	return;
 
@@ -1834,6 +1873,7 @@ process_message(void)
     if (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN)
     {
 	vk = (int) msg.wParam;
+        if (ans_file) { fprintf(ans_file, "WM_[SY]KD\n"); fflush(ans_file); }
 
 	/*
 	 * Handle dead keys in special conditions in other cases we let Windows
@@ -5662,6 +5702,8 @@ _OnImeNotify(HWND hWnd, DWORD dwCommand, DWORD dwData UNUSED)
     LRESULT lResult = 0;
     HIMC hImc;
 
+    if (ans_file) { fprintf(ans_file, "_OnImeNotify\n"); fflush(ans_file); }
+
     if (!pImmGetContext || (hImc = pImmGetContext(hWnd)) == (HIMC)0)
 	return lResult;
     switch (dwCommand)
@@ -5711,6 +5753,8 @@ _OnImeComposition(HWND hwnd, WPARAM dbcs UNUSED, LPARAM param)
 {
     char_u	*ret;
     int		len;
+
+    if (ans_file) { fprintf(ans_file, "_OnImeComposition\n"); fflush(ans_file); }
 
     if ((param & GCS_RESULTSTR) == 0) // Composition unfinished.
 	return 0;
