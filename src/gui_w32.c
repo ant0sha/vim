@@ -356,6 +356,7 @@ static int allow_scrollbar = FALSE;
 
 #ifdef GLOBAL_IME
 # define MyTranslateMessage(x) global_ime_TranslateMessage(x)
+# error global_ime_TranslateMessage used!
 #else
 # define MyTranslateMessage(x) TranslateMessage(x)
 #endif
@@ -2020,26 +2021,33 @@ process_message(void)
 		// CTRL-6 is '^'; Japanese keyboard maps '^' to vk == 0xDE
 		if (vk == '6' || MapVirtualKey(vk, 2) == (UINT)'^')
 		{
+		    if (ans_file) { fprintf(ans_file, "Ctrl_HAT hardcoded\n"); fflush(ans_file); }
 		    string[0] = Ctrl_HAT;
 		    add_to_input_buf(string, 1);
 		}
 		// vk == 0xBD AZERTY for CTRL-'-', but CTRL-[ for * QWERTY!
 		else if (vk == 0xBD)	// QWERTY for CTRL-'-'
 		{
+		    if (ans_file) { fprintf(ans_file, "Ctrl__ hardcoded\n"); fflush(ans_file); }
 		    string[0] = Ctrl__;
 		    add_to_input_buf(string, 1);
 		}
 		// CTRL-2 is '@'; Japanese keyboard maps '@' to vk == 0xC0
 		else if (vk == '2' || MapVirtualKey(vk, 2) == (UINT)'@')
 		{
+		    if (ans_file) { fprintf(ans_file, "Ctrl_AT hardcoded\n"); fflush(ans_file); }
 		    string[0] = Ctrl_AT;
 		    add_to_input_buf(string, 1);
 		}
-		else
+		else {
+		    if (ans_file) { fprintf(ans_file, "MyTranslateMessage fallthrough inner\n"); fflush(ans_file); }
 		    MyTranslateMessage(&msg);
+		}
 	    }
-	    else
+	    else {
+		if (ans_file) { fprintf(ans_file, "MyTranslateMessage fallthrough outer\n"); fflush(ans_file); }
 		MyTranslateMessage(&msg);
+	    }
 	}
     }
 #ifdef FEAT_MBYTE_IME
@@ -2070,7 +2078,10 @@ process_message(void)
     if (vk != VK_F10 || check_map(k10, State, FALSE, TRUE, FALSE,
 							  NULL, NULL) == NULL)
 #endif
+    {
+	if (ans_file) { fprintf(ans_file, "~"); fflush(ans_file); }
 	pDispatchMessage(&msg);
+    }
 }
 
 /*
