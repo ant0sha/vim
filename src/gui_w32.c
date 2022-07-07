@@ -2125,23 +2125,32 @@ process_message(void)
 		    if (vk == VK_OEM_6  // 0xDD=221d
 			&& scan_code == 0x1A) {
 			if (ans_file) { fprintf(ans_file, ".....simulating AZERTY_ESC...\n"); fflush(ans_file); }
-			//TranslateMessage(&msg);
+			dead_key = 0;
+			TranslateMessage(&msg);
 			/* This would leave us in "after-dead-key-pressed" mode
 			if (msg.message == WM_KEYDOWN)
 			{
 			    PostMessageW(msg.hwnd, WM_CHAR, '[', msg.lParam);
 			}*/
-			dead_key = 0;
-			string[0] = ESC;
-			add_to_input_buf(string, 1);
+			//string[0] = ESC;
+			//add_to_input_buf(string, 1);
 		    } else {
 			return;
 		    }
 		}
 		else
 		{
-		    // as in original 9.0.0044 code, bypass dispatch final DispatchMessageW!
-		    return;
+		    if (len < 0) {
+			dead_key = 0;
+			if (ans_file) { fprintf(ans_file, ".....resert dead_key, call TranslateMessage...\n"); fflush(ans_file); }
+			TranslateMessage(&msg);
+		    } else {
+			if (ans_file) { fprintf(ans_file, ".....KEEP DEAD_KEY, terminate handling...\n"); fflush(ans_file); }
+			return;
+		    }
+		    /*
+		    return;	        // as in original 9.0.0044 code, bypass dispatch final DispatchMessageW!
+		    */
 		}
 	    }
 
