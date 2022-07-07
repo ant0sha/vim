@@ -2126,10 +2126,14 @@ process_message(void)
 			&& scan_code == 0x1A) {
 			if (ans_file) { fprintf(ans_file, ".....simulating AZERTY_ESC...\n"); fflush(ans_file); }
 			//TranslateMessage(&msg);
+			/* This would leave us in "after-dead-key-pressed" mode
 			if (msg.message == WM_KEYDOWN)
 			{
 			    PostMessageW(msg.hwnd, WM_CHAR, '[', msg.lParam);
-			}
+			}*/
+			dead_key = 0;
+			string[0] = ESC;
+			add_to_input_buf(string, 1);
 		    } else {
 			return;
 		    }
