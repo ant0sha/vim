@@ -2121,8 +2121,18 @@ process_message(void)
 			&& !(GetKeyState(VK_SHIFT) & 0x8000)
 			&& !(GetKeyState(VK_MENU) & 0x8000))
 		{
-		    if (ans_file) { fprintf(ans_file, ".....calling TranslateMessage()...\n"); fflush(ans_file); }
-		    TranslateMessage(&msg);
+		    // Ctrl+[ (without AltGr) on AZERTY generates vk=221d=0xDD / scan_code=26d=0x1A(^Z)
+		    if (vk == VK_OEM_6  // 0xDD=221d
+			&& scan_code == 0x1A) {
+			if (ans_file) { fprintf(ans_file, ".....simulating AZERTY_ESC...\n"); fflush(ans_file); }
+			//TranslateMessage(&msg);
+			if (msg.message == WM_KEYDOWN)
+			{
+			    PostMessageW(msg.hwnd, WM_CHAR, '[', msg.lParam);
+			}
+		    } else {
+			return;
+		    }
 		}
 		else
 		{
@@ -2134,7 +2144,16 @@ process_message(void)
 	    // Post the message as TranslateMessage would do.
 	    else if (msg.message == WM_KEYDOWN)
 	    {
-		for (i = 0; i < len; i++) {
+		if (vk != 0xff
+			&& (GetKeyState(VK_CONTROL) & 0x8000)
+			&& !(GetKeyState(VK_SHIFT) & 0x8000)
+			&& !(GetKeyState(VK_MENU) & 0x8000)
+			    && (vk == 54 && scan_code == 7)) // AZERTY CTRL+^ (CTRL+6 key - without SHIFT)
+		{
+		    if (ans_file) { fprintf(ans_file, "....simulating AZERTY_C_CARET...\n"); fflush(ans_file); }
+		    PostMessageW(msg.hwnd, WM_CHAR, '^', msg.lParam);
+		}
+		else for (i = 0; i < len; i++) {
 		    if (ans_file) { fprintf(ans_file, "....feeding WM_CHAR %d\n", ch[i]); fflush(ans_file); }
 		    PostMessageW(msg.hwnd, WM_CHAR, ch[i], msg.lParam);
 		}
@@ -2163,7 +2182,10 @@ process_message(void)
     if (vk != VK_F10 || check_map(k10, State, FALSE, TRUE, FALSE,
 							  NULL, NULL) == NULL)
 #endif
+    {
+	if (ans_file) { fprintf(ans_file, "~"); fflush(ans_file); }
 	DispatchMessageW(&msg);
+    }
 }
 
 /*
@@ -4718,7 +4740,7 @@ _WndProc(
     WPARAM wParam,
     LPARAM lParam)
 {
-    if (ans_file) { fprintf(ans_file, "WndProc: hwnd = %08x, msg = %x, wParam = %x, lParam = %lx",
+    if (ans_file) { fprintf(ans_file, "WndProc: hwnd = %08x, msg = %x, wParam = %x, lParam = %lx\n",
 	    hwnd, uMsg, wParam, lParam); fflush(ans_file); }
 
     HandleMouseHide(uMsg, lParam);
