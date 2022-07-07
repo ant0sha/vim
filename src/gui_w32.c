@@ -2124,7 +2124,7 @@ process_message(void)
 		    // Ctrl+[ (without AltGr) on AZERTY generates vk=221d=0xDD / scan_code=26d=0x1A(^Z)
 		    if (vk == VK_OEM_6  // 0xDD=221d
 			&& scan_code == 0x1A) {
-			if (ans_file) { fprintf(ans_file, ".....simulating AZERTY_ESC (expel variant)...\n"); fflush(ans_file); }
+			if (ans_file) { fprintf(ans_file, ".....simulating AZERTY_ESC (ignore variant)...\n"); fflush(ans_file); }
 			//dead_key = 0;
 			//TranslateMessage(&msg);
 			/* This would leave us in "after-dead-key-pressed" mode
@@ -2134,12 +2134,13 @@ process_message(void)
 			}*/
 			//string[0] = ESC;
 			//add_to_input_buf(string, 1);
-			outputDeadKey_rePost(msg);
-		    } else {
-			//if (ans_file) { fprintf(ans_file, ".....0-length  respond, feed to TranslateMessage...\n"); fflush(ans_file); }
-			//TranslateMessage(&msg);
-			if (ans_file) { fprintf(ans_file, ".....0-length  respond, terminating...\n"); fflush(ans_file); }
+			//outputDeadKey_rePost(msg);
 			return;
+		    } else {
+			if (ans_file) { fprintf(ans_file, ".....0-length  respond, feed to TranslateMessage...\n"); fflush(ans_file); }
+			TranslateMessage(&msg);
+			//if (ans_file) { fprintf(ans_file, ".....0-length  respond, terminating...\n"); fflush(ans_file); }
+			//return;
 		    }
 		}
 		else
