@@ -2135,7 +2135,9 @@ process_message(void)
 			//string[0] = ESC;
 			//add_to_input_buf(string, 1);
 		    } else {
-			return;
+			if (ans_file) { fprintf(ans_file, ".....0-length  respond, feed to TranslateMessage...\n"); fflush(ans_file); }
+			TranslateMessage(&msg);
+			//return;
 		    }
 		}
 		else
