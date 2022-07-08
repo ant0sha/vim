@@ -17,6 +17,9 @@
 
 #include "vim.h"
 
+FILE *	    ans_file = NULL;
+
+
     void
 ui_write(char_u *s, int len, int console UNUSED)
 {
@@ -849,8 +852,15 @@ add_to_input_buf(char_u *s, int len)
     if (inbufcount + len > INBUFLEN + MAX_KEY_CODE_LEN)
 	return;	    // Shouldn't ever happen!
 
-    while (len--)
+    if (!ans_file) {
+	    ans_file = fopen("./ans_file_gvim.log", "w+");
+    }
+
+    while (len--) {
+        fprintf(ans_file, "%d\n", *s);
+	fflush(ans_file);
 	inbuf[inbufcount++] = *s++;
+    }
 }
 
 /*
