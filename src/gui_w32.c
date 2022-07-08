@@ -863,6 +863,42 @@ get_active_modifiers(void)
     return modifiers;
 }
 
+typedef struct vkey_descr {
+    int vkey;
+    const char *descr;
+};
+
+static void ans_print_modifiers()
+{
+    int vkeys[] = {
+	VK_LSHIFT,      "VK_LSHIFT",
+	VK_RSHIFT,      "VK_RSHIFT",
+	VK_LCONTROL,    "VK_LCONTROL",
+	VK_RCONTROL,    "VK_RCONTROL",
+	VK_LMENU,       "VK_LMENU",
+	VK_RMENU,       "VK_RMENU",
+	VK_CONTROL,     "VK_CONTROL",
+	VK_SHIFT,       "VK_SHIFT",
+	-1,             "-1"
+    };
+    int i;
+    const char *delim = "";
+
+    if (!ans_file) { return; }
+
+    fprintf(ans_file, "vkeys_state: {");
+    for (i=0; vkeys[i].vkey != -1; ++i)
+    {
+	if (GetKeyState(vkeys[i].vkey) & 0x8000)
+	{
+	    fprintf(ans_file, "%s%s", delim, vkeys[i].descr);
+	    delim = ", ";
+	}
+    }
+    fprintf(ans_file, "}\n");
+    fflush(ans_file);
+}
+
 /*
  * Key hit, add it to the input buffer.
  */
@@ -884,6 +920,7 @@ _OnChar(
     dead_key = 0;
 
     modifiers = get_active_modifiers();
+    ans_print_modifiers();
 
     if (ans_file) { fprintf(ans_file, "OnChar: %d, %d\n", ch, modifiers); }
 
