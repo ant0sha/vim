@@ -29,6 +29,11 @@
 # include "gui_dwrite.h"
 #endif
 
+#define DEAD_KEY_OFF                  (0)
+#define DEAD_KEY_SET_DEFAULT          (1)
+#define DEAD_KEY_TRANSIENT_IN_ON_CHAR (2)
+#define DEAD_KEY_SKIP_ON_CHAR         (3)
+
 #if defined(FEAT_DIRECTX)
 static DWriteContext *s_dwc = NULL;
 static int s_directx_enabled = 0;
@@ -536,7 +541,7 @@ static int	s_y_pending;
 static UINT	s_kFlags_pending;
 static UINT_PTR	s_wait_timer = 0;	  // Timer for get char from user
 static int	s_timed_out = FALSE;
-static int	dead_key = 0;		  // 0: no dead key, 1: dead key pressed
+static int	dead_key = DEAD_KEY_OFF;  // DEAD_KEY_OFF: no dead key, DEAD_KEY_SET_DEFAULT: dead key pressed, ...
 static UINT	surrogate_pending_ch = 0; // 0: no surrogate pending,
 					  // else a high surrogate
 
@@ -917,6 +922,7 @@ _OnChar(
     int		ch_h[20];
     int         idx_h = 0;
 
+#if 0
     if (dead_key == 3 && cch == '^')
     {
 	if (ans_file) { fprintf(ans_file, "OnChar: %d - recognized AZERTY CTRL-^ 'echo#3', ignoring.\n", ch); }
@@ -926,12 +932,14 @@ _OnChar(
     if (dead_key == 2 && cch == 0x1b) // ESC key-code
     {
 	if (ans_file) { fprintf(ans_file, "OnChar: %d - recognized AZERTY CTRL-ESC 'echo#2', ignoring.\n", ch); }
-	dead_key = 0;
+	dead_key = DEAD_KEY_OFF;
 	return;
     }
-    if (dead_key == 5)
+#endif
+
+    if (dead_key == DEAD_KEY_SKIP_ON_CHAR) // DEAD_KEY_SKIP_ON_CHAR
     {
-	if (ans_file) { fprintf(ans_file, "OnChar: %d - recognized SKIP_ON_CHAR_ONCE.\n", ch); }
+	if (ans_file) { fprintf(ans_file, "OnChar: %d - recognized DEAD_KEY_SKIP_ON_CHAR.\n", ch); }
 	return;
     }
 
@@ -940,8 +948,8 @@ _OnChar(
 	fprintf(ans_file, "reset dead_key=%d\n", dead_key);
     }
 
-    if (dead_key != 4) // keep "4" for later handling in process_message(), DE_CTRL_DEAD_CIRCUMFLEX
-	dead_key = 0;
+    if (dead_key != DEAD_KEY_TRANSIENT_IN_ON_CHAR) // keep "DEAD_KEY_TRANSIENT_IN_ON_CHAR" for later handling in process_message(), DE_CTRL_DEAD_CIRCUMFLEX, DEAD_KEY_TRANSIENT_IN_ON_CHAR
+	dead_key = DEAD_KEY_OFF;
 
     modifiers = get_active_modifiers();
     ans_print_modifiers();
@@ -1012,7 +1020,7 @@ _OnSysChar(
     int		modifiers;
     int		ch = cch;   // special keys are negative
 
-    dead_key = 0;
+    dead_key = DEAD_KEY_OFF;
 
     // OK, we have a character key (given by ch) which was entered with the
     // ALT key pressed. Eg, if the user presses Alt-A, then ch == 'A'. Note
@@ -1956,7 +1964,7 @@ outputDeadKey_rePost_Ex(MSG originalMsg, int dead_key2set)
 
     if (ans_file) { fprintf(ans_file, "outputDeadKey_rePost?\n"); fflush(ans_file); }
 
-    if (!dead_key)
+    if (dead_key == DEAD_KEY_OFF)
 	return;
 
     if (ans_file) { fprintf(ans_file, "outputDeadKey_rePost(dead_key2set=%d) - we mean it really!\n", dead_key2set); fflush(ans_file); }
@@ -1978,7 +1986,7 @@ outputDeadKey_rePost_Ex(MSG originalMsg, int dead_key2set)
     static void
 outputDeadKey_rePost(MSG originalMsg)
 {
-    outputDeadKey_rePost_Ex(originalMsg, 0);
+    outputDeadKey_rePost_Ex(originalMsg, DEAD_KEY_OFF);
 }
 
 /*
@@ -2053,10 +2061,41 @@ process_message(void)
 	 *   for some reason TranslateMessage() do not trigger a call
 	 *   immediately to _OnChar() (or _OnSysChar()).
 	 */
-	if (dead_key == 5) // We are after SKIP_ON_CHAR_ONCE event handled, this keypress we want to process normally
-	    dead_key = 0;
-	if (dead_key)
+
+	/*
+	 * We are at the moment after WM_CHAR with DEAD_KEY_SKIP_ON_CHAR event
+	 * was handled by _WndProc, this keypress we want to process normally
+	 */
+	if (dead_key == DEAD_KEY_SKIP_ON_CHAR)
+	    dead_key = DEAD_KEY_OFF;
+
+	if (dead_key != DEAD_KEY_OFF)
 	{
+	    /*
+	     * Expell the dead key pressed with Ctrl in a special way.
+	     * 
+	     * After dead key was pressed with Ctrl in some cases, ESC was
+	     * artificially injected and handled by _OnChar(), now we are
+	     * dealing with completely new key press from the user. If we don't
+	     * do anything, ToUnicode() call will interpret this vk+scan_code
+	     * under influence of "dead-modifier". To prevent this we translate
+	     * this message replacing current char from user with VK_SPACE,
+	     * which will cause WM_CHAR with dead_key's character itself. Using
+	     * DEAD_KEY_SKIP_ON_CHAR value of dead_char we force _OnChar() to
+	     * ignore this one WM_CHAR event completely. Afterwards (due to
+	     * usage of PostMessage), this procedure is scheduled to be called
+	     * again with user char and on next entry we will clean
+	     * DEAD_KEY_SKIP_ON_CHAR. We cannot use original
+	     * outputDeadKey_rePost() since we do not wish to reset dead_key
+	     * value.
+	     */
+	    if (dead_key == DEAD_KEY_TRANSIENT_IN_ON_CHAR)
+	    {
+		if (ans_file) { fprintf(ans_file, "DEAD_KEY_TRANSIENT_IN_ON_CHAR detected after _OnChar, RE_GEN_CUR_CHAR_WO_DEAD %s, %d\n", (msg.message==WM_KEYDOWN? "WM_KEYDOWN":"WM_SYSKEYDOWN" ), vk); fflush(ans_file); }
+		outputDeadKey_rePost_Ex(msg, /*dead_key=*/DEAD_KEY_SKIP_ON_CHAR);
+		return;
+	    }
+
 	    /*
 	     * If a dead key was pressed and the user presses VK_SPACE,
 	     * VK_BACK, or VK_ESCAPE it means that he actually wants to deal
@@ -2071,18 +2110,8 @@ process_message(void)
 	     */
 	    if ((vk == VK_SPACE || vk == VK_BACK || vk == VK_ESCAPE))
 	    {
-		dead_key = 0;
+		dead_key = DEAD_KEY_OFF;
 		TranslateMessage(&msg);
-		return;
-	    }
-
-	    if (dead_key == 4)
-	    {
-		// re-post same char without dead-key, continue what we started for "DE" CTRL+DEAD_KEY
-		// re-generate the current character free of the dead char influence
-		if (ans_file) { fprintf(ans_file, "RE_GEN_CUR_CHAR_WO_DEAD %s, %d\n", (msg.message==WM_KEYDOWN? "WM_KEYDOWN":"WM_SYSKEYDOWN" ), vk); fflush(ans_file); }
-		//PostMessage(msg.hwnd, msg.message, msg.wParam, msg.lParam);
-		outputDeadKey_rePost_Ex(msg, /*dead_key=*/5); // expel the dead_char generated using SKIP_ON_CHAR_ONCE value
 		return;
 	    }
 
@@ -2128,7 +2157,7 @@ process_message(void)
 		 * character output (such as a NUMPAD printable character or
 		 * the TAB key, etc...).
 		 */
-		if (dead_key && (special_keys[i].vim_code0 == 'K'
+		if (dead_key != DEAD_KEY_OFF && (special_keys[i].vim_code0 == 'K'
 						|| vk == VK_TAB || vk == CAR))
 		{
 		    outputDeadKey_rePost(msg);
@@ -2234,10 +2263,22 @@ process_message(void)
 		//TranslateMessage(&msg);
 		//return; // return as attempt to removed twice input
 		if (len < 0)
-		    dead_key = 1;
+		    dead_key = DEAD_KEY_SET_DEFAULT;
 
 		if (len < 0 && (GetKeyState(VK_CONTROL) & 0x8000))
 		{
+#if 1
+		    if (  (vk == 221 && scan_code == 26) // AZERTY CTRL+dead_circumflex
+			||(vk == 220 && scan_code == 41) // QWERTZ CTRL+dead_circumflex
+			)
+		    {
+			if (ans_file) { fprintf(ans_file, "....EXPEL %s CTRL+DEAD_KEY!!\n", ((vk == 221 && scan_code == 26)? "AZERTY-be":"QWERTZ-de")); fflush(ans_file); }
+			// post '[' - which will be interpreted with CTRL hold as ESC
+			PostMessageW(msg.hwnd, WM_CHAR, '[', msg.lParam);
+			if (ans_file) { fprintf(ans_file, "....after PostMessageW(...[..)\n"); fflush(ans_file); }
+			dead_key = DEAD_KEY_TRANSIENT_IN_ON_CHAR; // "DE" dead_key with control, wait for next char which will be influenced by "dead state" (DEAD_KEY_TRANSIENT_IN_ON_CHAR)
+		    }
+#else
 		    if (vk == 221 && scan_code == 26)
 		    {
 			if (ans_file) fprintf(ans_file, "....EXPEL AZERTY CTRL+DEAD_KEY!!\n");
@@ -2261,8 +2302,9 @@ process_message(void)
 			// now we post our "[" - which will be interpreted with CTRL as ESC
 			PostMessageW(msg.hwnd, WM_CHAR, '[', msg.lParam);
 			if (ans_file) fprintf(ans_file, "....after PostMessageW(...[..)\n");
-			dead_key = 4; // "DE" dead_key with control, wait for next char which will be influenced by "dead state"
+			dead_key = DEAD_KEY_TRANSIENT_IN_ON_CHAR; // "DE" dead_key with control, wait for next char which will be influenced by "dead state"
 		    }
+#endif
 		    else
 		    {
 			return; // neither "DE" nor AZERTY CTRL+DEAD_KEY - we don't have an idea for special handling - leave as it is
