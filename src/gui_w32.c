@@ -866,20 +866,20 @@ get_active_modifiers(void)
 typedef struct vkey_descr {
     int vkey;
     const char *descr;
-};
+} vkey_descr;
 
 static void ans_print_modifiers()
 {
-    int vkeys[] = {
-	VK_LSHIFT,      "VK_LSHIFT",
-	VK_RSHIFT,      "VK_RSHIFT",
-	VK_LCONTROL,    "VK_LCONTROL",
-	VK_RCONTROL,    "VK_RCONTROL",
-	VK_LMENU,       "VK_LMENU",
-	VK_RMENU,       "VK_RMENU",
-	VK_CONTROL,     "VK_CONTROL",
-	VK_SHIFT,       "VK_SHIFT",
-	-1,             "-1"
+    vkey_descr vkeys[] = {
+	 { VK_LSHIFT,      "VK_LSHIFT",   }
+	,{ VK_RSHIFT,      "VK_RSHIFT",   }
+	,{ VK_LCONTROL,    "VK_LCONTROL", }
+	,{ VK_RCONTROL,    "VK_RCONTROL", }
+	,{ VK_LMENU,       "VK_LMENU",    }
+	,{ VK_RMENU,       "VK_RMENU",    }
+	,{ VK_CONTROL,     "VK_CONTROL",  }
+	,{ VK_SHIFT,       "VK_SHIFT",    }
+	,{ -1,             "-1"           }
     };
     int i;
     const char *delim = "";
@@ -917,7 +917,31 @@ _OnChar(
     int		ch_h[20];
     int         idx_h = 0;
 
-    dead_key = 0;
+    if (dead_key == 3 && cch == '^')
+    {
+	if (ans_file) { fprintf(ans_file, "OnChar: %d - recognized AZERTY CTRL-^ 'echo#3', ignoring.\n", ch); }
+	dead_key = 2;
+	return;
+    }
+    if (dead_key == 2 && cch == 0x1b) // ESC key-code
+    {
+	if (ans_file) { fprintf(ans_file, "OnChar: %d - recognized AZERTY CTRL-ESC 'echo#2', ignoring.\n", ch); }
+	dead_key = 0;
+	return;
+    }
+    if (dead_key == 5)
+    {
+	if (ans_file) { fprintf(ans_file, "OnChar: %d - recognized SKIP_ON_CHAR_ONCE.\n", ch); }
+	return;
+    }
+
+    if (dead_key && ans_file)
+    {
+	fprintf(ans_file, "reset dead_key=%d\n", dead_key);
+    }
+
+    if (dead_key != 4) // keep "4" for later handling in process_message(), DE_CTRL_DEAD_CIRCUMFLEX
+	dead_key = 0;
 
     modifiers = get_active_modifiers();
     ans_print_modifiers();
@@ -1926,7 +1950,7 @@ gui_mch_draw_part_cursor(
  * dead key's nominal character and re-post the original message.
  */
     static void
-outputDeadKey_rePost(MSG originalMsg)
+outputDeadKey_rePost_Ex(MSG originalMsg, int dead_key2set)
 {
     static MSG deadCharExpel;
 
@@ -1935,9 +1959,9 @@ outputDeadKey_rePost(MSG originalMsg)
     if (!dead_key)
 	return;
 
-    if (ans_file) { fprintf(ans_file, "outputDeadKey_rePost - we mean it really!\n"); fflush(ans_file); }
+    if (ans_file) { fprintf(ans_file, "outputDeadKey_rePost(dead_key2set=%d) - we mean it really!\n", dead_key2set); fflush(ans_file); }
 
-    dead_key = 0;
+    dead_key = dead_key2set;
 
     // Make Windows generate the dead key's character
     deadCharExpel.message = originalMsg.message;
@@ -1949,6 +1973,12 @@ outputDeadKey_rePost(MSG originalMsg)
     // re-generate the current character free of the dead char influence
     PostMessage(originalMsg.hwnd, originalMsg.message, originalMsg.wParam,
 							  originalMsg.lParam);
+}
+
+    static void
+outputDeadKey_rePost(MSG originalMsg)
+{
+    outputDeadKey_rePost_Ex(originalMsg, 0);
 }
 
 /*
@@ -2023,6 +2053,8 @@ process_message(void)
 	 *   for some reason TranslateMessage() do not trigger a call
 	 *   immediately to _OnChar() (or _OnSysChar()).
 	 */
+	if (dead_key == 5) // We are after SKIP_ON_CHAR_ONCE event handled, this keypress we want to process normally
+	    dead_key = 0;
 	if (dead_key)
 	{
 	    /*
@@ -2043,6 +2075,17 @@ process_message(void)
 		TranslateMessage(&msg);
 		return;
 	    }
+
+	    if (dead_key == 4)
+	    {
+		// re-post same char without dead-key, continue what we started for "DE" CTRL+DEAD_KEY
+		// re-generate the current character free of the dead char influence
+		if (ans_file) { fprintf(ans_file, "RE_GEN_CUR_CHAR_WO_DEAD %s, %d\n", (msg.message==WM_KEYDOWN? "WM_KEYDOWN":"WM_SYSKEYDOWN" ), vk); fflush(ans_file); }
+		//PostMessage(msg.hwnd, msg.message, msg.wParam, msg.lParam);
+		outputDeadKey_rePost_Ex(msg, /*dead_key=*/5); // expel the dead_char generated using SKIP_ON_CHAR_ONCE value
+		return;
+	    }
+
 	    // In modes where we are not typing, dead keys should behave
 	    // normally
 	    else if ((get_real_state()
@@ -2051,6 +2094,7 @@ process_message(void)
 		outputDeadKey_rePost(msg);
 		return;
 	    }
+
 	}
 
 	// Check for CTRL-BREAK
@@ -2138,8 +2182,12 @@ process_message(void)
 	    }
 	}
 
+#if 0
+	TranslateMessage(&msg); // TODO: enable bottom part again
+
+#else
 	// Not a special key.
-	if (special_keys[i].key_sym == 0)
+	if (special_keys[i].key_sym == 0) // TODO: disabled
 	{
 	    WCHAR	ch[8];
 	    int		len;
@@ -2172,27 +2220,89 @@ process_message(void)
 	    // If this is a dead key ToUnicode returns a negative value.
 	    len = ToUnicode(vk, scan_code, keyboard_state, ch, ARRAY_LENGTH(ch),
 		    0);
-	    dead_key = len < 0;
 
-	    if (len <= 0) {
-		if (ans_file) { if (len < 0) fprintf(ans_file, "....dead_key(len<0)\n");
-				else         fprintf(ans_file, "....empty_string(len=0)\n"); fflush(ans_file); }
-		return;
-	    }
-
-	    // Post the message as TranslateMessage would do.
-	    if (ans_file) { fprintf(ans_file, "%s....feed %s's: {", ans_indent_big, (msg.message==WM_KEYDOWN? "WM_CHAR":"WM_SYSCHAR")); for(i=0;i<len;++i) {fprintf(ans_file,"%s%d", (i? ", ":""), ch[i]);}; fprintf(ans_file, "}\n"); fflush(ans_file); }
-	    if (msg.message == WM_KEYDOWN)
+	    if (len <= 0)
 	    {
-		for (i = 0; i < len; i++)
-		    PostMessageW(msg.hwnd, WM_CHAR, ch[i], msg.lParam);
+		if (ans_file)
+		{
+		    if (len < 0) fprintf(ans_file, "....dead_key(len<0)\n");
+		    else         fprintf(ans_file, "....empty_string(len=0)\n");
+		    fflush(ans_file);
+		}
+
+		// tranlate dead_key or void_key as before
+		//TranslateMessage(&msg);
+		//return; // return as attempt to removed twice input
+		if (len < 0)
+		    dead_key = 1;
+
+		if (len < 0 && (GetKeyState(VK_CONTROL) & 0x8000))
+		{
+		    if (vk == 221 && scan_code == 26)
+		    {
+			if (ans_file) fprintf(ans_file, "....EXPEL AZERTY CTRL+DEAD_KEY!!\n");
+			dead_key = 3; // dead_key with control
+			// this call of TranslateMessage will call WndProc with 2 events:
+			//	 the dead_key native symbol (for the case of AZERTY-'^') as WM_CHAR with control pressed
+			//	 the ESC-symbol = 0x1b as WM_CHAR with control pressed
+			TranslateMessage(&msg);
+
+			// now we post our "[" - which will be interpreted with CTRL as ESC
+			PostMessageW(msg.hwnd, WM_CHAR, '[', msg.lParam);
+		    }
+		    else if (vk == 220 && scan_code == 41)
+		    {
+			if (ans_file) fprintf(ans_file, "....EXPEL DE CTRL+DEAD_KEY!!\n");
+			// this call of TranslateMessage, differently to AZERTY CTRL+DEAD_KEY will not call WndProc
+			//	 OS knows that dead_key state is entered instead and 
+			//	 with next key press we will have dead state
+			TranslateMessage(&msg);
+
+			// now we post our "[" - which will be interpreted with CTRL as ESC
+			PostMessageW(msg.hwnd, WM_CHAR, '[', msg.lParam);
+			if (ans_file) fprintf(ans_file, "....after PostMessageW(...[..)\n");
+			dead_key = 4; // "DE" dead_key with control, wait for next char which will be influenced by "dead state"
+		    }
+		    else
+		    {
+			return; // neither "DE" nor AZERTY CTRL+DEAD_KEY - we don't have an idea for special handling - leave as it is
+		    }
+
+		    //static MSG deadCharExpel;
+		    //deadCharExpel.message = msg.message;
+		    //deadCharExpel.hwnd    = msg.hwnd;
+		    //deadCharExpel.wParam  = VK_SPACE;
+
+		    //if (ans_file) fprintf(ans_file, "....EXPEL DEAD_KEY!!\n");
+		    //TranslateMessage(&deadCharExpel);
+
+		    // post escape - for any dead key which is press with CTRL
+		    //PostMessageW(msg.hwnd, WM_CHAR, 0x1b, msg.lParam);
+		}
+		else
+		{
+		    return;
+		}
 	    }
 	    else
 	    {
-		for (i = 0; i < len; i++)
-		    PostMessageW(msg.hwnd, WM_SYSCHAR, ch[i], msg.lParam);
+
+		// Post the message as TranslateMessage would do.
+		if (ans_file) { fprintf(ans_file, "%s....feed %s's: {", ans_indent_big, (msg.message==WM_KEYDOWN? "WM_CHAR":"WM_SYSCHAR")); for(i=0;i<len;++i) {fprintf(ans_file,"%s%d", (i? ", ":""), ch[i]);}; fprintf(ans_file, "}\n"); fflush(ans_file); }
+		if (msg.message == WM_KEYDOWN)
+		{
+		    for (i = 0; i < len; i++)
+			PostMessageW(msg.hwnd, WM_CHAR, ch[i], msg.lParam);
+		}
+		else
+		{
+		    for (i = 0; i < len; i++)
+			PostMessageW(msg.hwnd, WM_SYSCHAR, ch[i], msg.lParam);
+		}
 	    }
 	}
+#endif
+
     }
 #ifdef FEAT_MBYTE_IME
     else if (msg.message == WM_IME_NOTIFY)
@@ -4766,7 +4876,7 @@ _WndProc(
 {
     if (ans_file) { fprintf(ans_file, "%s....WndProc: hwnd = %08x, msg = %x, wParam = %x, lParam = %lx\n",
 	    ans_indent_big,
-	    hwnd, uMsg, wParam, lParam); fflush(ans_file); }
+	    (unsigned int) hwnd, uMsg, wParam, lParam); fflush(ans_file); }
 
     HandleMouseHide(uMsg, lParam);
 
