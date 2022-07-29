@@ -915,7 +915,7 @@ _OnChar(
     }
 
     len = char_to_string(ch, string, 40, FALSE);
-    if (ans_file) { int c; fprintf(ans_file, "after c2s: %d, ", ch); for(c=0;c<len;++c) { fprintf(ans_file, "%d ", string[c]); }; fprintf(ans_file, "\n"); fflush(ans_file); }
+    if (ans_file) { int c; const char *delim = ""; fprintf(ans_file, "after c2s: %d, {", ch); for(c=0;c<len;++c) { fprintf(ans_file, "%s%d", delim, string[c]); delim=", "; }; fprintf(ans_file, "}\n"); fflush(ans_file); }
     if (len == 1 && string[0] == Ctrl_C && ctrl_c_interrupts)
     {
 	trash_input_buf();
@@ -2199,7 +2199,7 @@ process_message(void)
 	    if (ans_file) {
 		const char *delim = "";
 		fprintf(ans_file, "....feeding %s's: {", msg.message==WM_KEYDOWN? "WM_CHAR":"WM_SYSCHAR");
-		for (i=0;i<len;++i) { fprintf(ans_file, "%s%d\n", delim, ch[i]); delim = ", "; }
+		for (i=0;i<len;++i) { fprintf(ans_file, "%s%d", delim, ch[i]); delim = ", "; }
 		fprintf(ans_file, "}\n");
 		fflush(ans_file);
 	    }
@@ -4790,8 +4790,8 @@ _WndProc(
     WPARAM wParam,
     LPARAM lParam)
 {
-    if (ans_file) { fprintf(ans_file, "WndProc: hwnd = %08x, msg = %x, wParam = %x, lParam = %lx\n",
-	    (unsigned int) hwnd, uMsg, (unsigned int) wParam, (long unsigned int) lParam); fflush(ans_file); }
+    if (ans_file) { long long h=(long long)hwnd; fprintf(ans_file, "WndProc: hwnd = %08x, msg = %x, wParam = %x, lParam = %lx\n",
+	    (int)h, uMsg, (unsigned int) wParam, (long unsigned int) lParam); fflush(ans_file); }
 
     HandleMouseHide(uMsg, lParam);
 
