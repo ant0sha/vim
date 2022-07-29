@@ -911,6 +911,15 @@ _OnChar(
     if (ch == CSI)
 	ch = K_CSI;
 
+    if (ans_file) {
+	if (cRepeat & LPARAM_WM_CHAR_IGNORE_CTRL)
+	    fprintf(ans_file, "... removing CTRL modifier ...\n");
+	if (cRepeat & LPARAM_WM_CHAR_IGNORE_ALT)
+	    fprintf(ans_file, "... removing ALT modifier ...\n");
+	if (cRepeat & LPARAM_WM_CHAR_IGNORE_SHIFT)
+	    fprintf(ans_file, "... removing SHIFT modifier ...\n");
+    }
+
     // ignore modifiers already handled by caller prior to
     // PostMessageW (...WM_CHAR...);
     if (cRepeat & LPARAM_WM_CHAR_IGNORE_CTRL)
@@ -1957,6 +1966,35 @@ int compare_unicode_keys(
 }
 
 /*
+ * Expels dead key in-place by calling one time ToUnicode() with
+ * VK_SPACE, which returns dummy value.
+ */
+void expel_dead_key_via_ToUnicode()
+{
+    static BYTE	keyboard_state[256];
+    UINT	vk;
+    UINT	scan_code;
+    int		len;
+    WCHAR	ch[8];
+
+    // expel dead char calling "innocent"
+    // ToUnicode("space")
+    memset(keyboard_state, 0, sizeof(keyboard_state));
+    vk = VK_SPACE;
+    scan_code = 32;
+
+    // expel dead key by asking for "space"
+    // translation
+    len = ToUnicode(vk, scan_code, keyboard_state, ch, ARRAY_LENGTH(ch), 0);
+    if (len < 0) {
+	// ...we are in troubles - after dead_key we got again
+	// dead_key. some warning to the user in that case would
+	// be nice...
+	if (ans_file) { fprintf(ans_file, "....we are in troubles - after dead_key again dead_key for %d %d\n", vk, scan_code); fflush(ans_file); }
+    }
+}
+
+/*
  * Process a single Windows message.
  * If one is not available we hang until one is.
  */
@@ -2121,6 +2159,7 @@ process_message(void)
 	    if (special_keys[i].key_sym == vk
 		    && (vk != VK_SPACE || !(GetKeyState(VK_LMENU) & 0x8000)))
 	    {
+		if (ans_file) { fprintf(ans_file, "..special_keys[%d] vk=%d matched..\n", i, vk); fflush(ans_file); }
 		/*
 		 * Behave as expected if we have a dead key and the special key
 		 * is a key that would normally trigger the dead key nominal
@@ -2245,33 +2284,20 @@ process_message(void)
 	    {
 		int len2;
 		WCHAR	ch2[8];
-		int bingo = 0;
-		BYTE backup_keyboard_state[2];
 		// second pass to check if we have some CTRL+LeftALT
 		// hit complementary to classical AltGr
-		backup_keyboard_state[0] = keyboard_state[VK_MENU];
-		backup_keyboard_state[1] = keyboard_state[VK_CONTROL];
 		keyboard_state[VK_MENU] = 0x80;
 		keyboard_state[VK_CONTROL] = 0x80;
 		len2 = ToUnicode(vk, scan_code, keyboard_state, ch2, ARRAY_LENGTH(ch2), 0);
 		if (len2 < 0)
 		{
 		    if (ans_file) { fprintf(ans_file, "!!!!!expel dead_key accidentally tapped!!! for %d %d\n", vk, scan_code); fflush(ans_file); }
-		    // expel dead char calling "innocent"
-		    // ToUnicode
-		    keyboard_state[VK_MENU]    = backup_keyboard_state[0];
-		    keyboard_state[VK_CONTROL] = backup_keyboard_state[1];
-		    len2 = ToUnicode(vk, scan_code, keyboard_state, ch2, ARRAY_LENGTH(ch2), 0);
-		    if (len2 < 0) {
-			// ....we are in troubles - after
-			// dead_key again dead_key
-			if (ans_file) { fprintf(ans_file, "....we are in troubles - after dead_key again dead_key for %d %d\n", vk, scan_code); fflush(ans_file); }
-		    }
-		    bingo = 1;
+		    expel_dead_key_via_ToUnicode();
 		}
-		if (bingo || compare_unicode_keys(ch, len, ch2, len2) != 0) {
-		    // overwrite original "ch" with new
-		    // content (with AltGr applied)
+		if (len2 != 0 && compare_unicode_keys(ch, len, ch2, len2) != 0) {
+		    // something meaningful should have len2!=0,
+		    // overwrite original "ch" with new content
+		    // (with AltGr applied)
 		    len = len2; for (i=0;i<len;++i) { ch[i]=ch2[i]; }
 		    // tell to _OnChar to ignore ctrl+alt
 		    // since they are handled here already
@@ -2282,30 +2308,18 @@ process_message(void)
 	    {
 		int len2;
 		WCHAR	ch2[8];
-		BYTE backup_keyboard_state[1];
-		int bingo = 0;
 		// second pass to check if we have different
 		// meaning with SHIFT key removed - in that case
 		// VK_SHIFT has to be suppressed in
 		// _OnChar
-		backup_keyboard_state[0] = keyboard_state[VK_SHIFT];
 		keyboard_state[VK_SHIFT] = 0;
 		len2 = ToUnicode(vk, scan_code, keyboard_state, ch2, ARRAY_LENGTH(ch2), 0);
 		if (len2 < 0)
 		{
 		    if (ans_file) { fprintf(ans_file, "!!!!!expel dead_key accidentally tapped!!! for %d %d\n", vk, scan_code); fflush(ans_file); }
-		    // expel dead char calling "innocent"
-		    // ToUnicode
-		    keyboard_state[VK_SHIFT]   = backup_keyboard_state[0];
-		    len2 = ToUnicode(vk, scan_code, keyboard_state, ch2, ARRAY_LENGTH(ch2), 0);
-		    if (len2 < 0) {
-			// ....we are in troubles - after
-			// dead_key again dead_key
-			if (ans_file) { fprintf(ans_file, "....we are in troubles - after dead_key again dead_key for %d %d\n", vk, scan_code); fflush(ans_file); }
-		    }
-		    bingo = 1;
+		    expel_dead_key_via_ToUnicode();
 		}
-		if (bingo || compare_unicode_keys(ch, len, ch2, len2) != 0) {
+		if (compare_unicode_keys(ch, len, ch2, len2) != 0) {
 		    // tell to _OnChar to ignore SHIFT
 		    // since it is handled here already
 		    lParamForOnChar |= LPARAM_WM_CHAR_IGNORE_SHIFT;
