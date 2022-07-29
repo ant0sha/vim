@@ -35,6 +35,9 @@
 #define DEAD_KEY_TRANSIENT_IN_ON_CHAR	2	// wait for next key press
 #define DEAD_KEY_SKIP_ON_CHAR		3	// skip next _OnChar()
 
+// values for LPARAM WM_CHAR message
+#define LPARAM_WM_CHAR_MODIFIERS_IGNORE 1
+
 #if defined(FEAT_DIRECTX)
 static DWriteContext *s_dwc = NULL;
 static int s_directx_enabled = 0;
@@ -875,7 +878,7 @@ get_active_modifiers(void)
 _OnChar(
     HWND hwnd UNUSED,
     UINT cch,
-    int cRepeat UNUSED)
+    int cRepeat)
 {
     char_u	string[40];
     int		len = 0;
@@ -906,7 +909,7 @@ _OnChar(
     if (ch == CSI)
 	ch = K_CSI;
 
-    if (modifiers)
+    if (modifiers && !(cRepeat & LPARAM_WM_CHAR_MODIFIERS_IGNORE))
     {
 	string[0] = CSI;
 	string[1] = KS_MODIFIER;
@@ -2144,6 +2147,7 @@ process_message(void)
 	    int		len;
 	    int		i;
 	    UINT	scan_code;
+	    int         lParamForOnChar = 0;
 
 	    // Construct the state table with only a few modifiers, we don't
 	    // really care about the presence of Ctrl/Alt as those modifiers are
@@ -2173,6 +2177,42 @@ process_message(void)
 		    0);
 	    if (len < 0)
 		dead_key = DEAD_KEY_SET_DEFAULT;
+	    else if ((GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_LMENU) & 0x8000))
+	    {
+		int len2;
+		WCHAR	ch2[8];
+		// second pass to check if we have some CTRL+LeftALT
+		// hit complememntary to classical AltGr
+		keyboard_state[VK_MENU] = 0x80;
+		keyboard_state[VK_CONTROL] = 0x80;
+		len2 = ToUnicode(vk, scan_code, keyboard_state, ch2, ARRAY_LENGTH(ch2), 0);
+		if (len2 > 0)
+		{
+		    int bingo = 0;
+		    if (len2 != len)
+		    {
+			if (ans_file) { fprintf(ans_file, "!bingo: C+LeftAlt= something with different length (%d vs %d)!\n", len, len2); fflush(ans_file); }
+			bingo = 1;
+		    }
+		    else
+		    {
+			int j;
+			for (j=0;j<len;++j) {
+			    if (ch[j] != ch2[j]) {
+				if (ans_file) { fprintf(ans_file, "!bingo: C+LeftAlt= something with different length (%d vs %d)!\n", len, len2); fflush(ans_file); }
+				bingo = 1;
+				break;
+			    }
+			}
+		    }
+		    if (bingo) {
+			len = len2; for (i=0;i<len;++i) { ch[i]=ch2[i]; }
+			// tell to _OnChar to ignore ctrl+alt
+			// since they are handled here already
+		        lParamForOnChar |= LPARAM_WM_CHAR_MODIFIERS_IGNORE;
+		    }
+		}
+	    }
 
 	    if (len <= 0)
 	    {
@@ -2187,7 +2227,7 @@ process_message(void)
 		    if (ans_file) { fprintf(ans_file, ".....fake dead-circumflex ESC workaround...\n"); fflush(ans_file); }
 		    // post WM_CHAR='[' - which will be interpreted with CTRL
 		    // stil hold as ESC
-		    PostMessageW(msg.hwnd, WM_CHAR, '[', msg.lParam);
+		    PostMessageW(msg.hwnd, WM_CHAR, '[', 0);
 		    // ask _OnChar() to not touch this state, wait for next key
 		    // press and maintain knowledge that we are "poisoned" with
 		    // "dead state"
@@ -2208,7 +2248,7 @@ process_message(void)
 	    if (msg.message == WM_KEYDOWN)
 	    {
 		for (i = 0; i < len; i++)
-		    PostMessageW(msg.hwnd, WM_CHAR, ch[i], msg.lParam);
+		    PostMessageW(msg.hwnd, WM_CHAR, ch[i], lParamForOnChar);
 	    }
 	    else
 	    {
@@ -4846,7 +4886,7 @@ _WndProc(
     case WM_CHAR:
 	// Don't use HANDLE_MSG() for WM_CHAR, it truncates wParam to a single
 	// byte while we want the UTF-16 character value.
-	_OnChar(hwnd, (UINT)wParam, (int)(short)LOWORD(lParam));
+	_OnChar(hwnd, (UINT)wParam, (int)(lParam));
 	return 0L;
 
     case WM_SYSCHAR:
