@@ -68,8 +68,10 @@ DIRECTX=yes
 # For amd64/x64 architecture set ARCH=x86-64 .
 # If not set, it will be automatically detected. (Normally i686 or x86-64.)
 #ARCH=i686
+ARCH=x86-64
 # Set to yes to cross-compile from unix; no=native Windows (and Cygwin).
-CROSS=no
+CROSS=yes
+CROSS_COMPILE=x86_64-w64-mingw32-
 
 # Set to path to iconv.h and libiconv.a to enable using 'iconv.dll'.
 # Use "yes" when the path does not need to be define.
@@ -228,7 +230,8 @@ endif
 ifeq ($(UNDER_CYGWIN),yes)
 WINDRES := $(CROSS_COMPILE)windres
 else
-WINDRES := windres
+#WINDRES := windres
+WINDRES := x86_64-w64-mingw32-windres
 endif
 
 # Get the default ARCH.
@@ -525,7 +528,7 @@ endif
 #>>>>> end of choices
 ###########################################################################
 
-CFLAGS = -I. -Iproto $(DEFINES) -pipe -march=$(ARCH) -Wall
+CFLAGS = -I /usr/x86_64-w64-mingw32/sys-root/mingw/include -I. -Iproto $(DEFINES) -pipe -march=$(ARCH) -Wall 
 # To get additional compiler warnings
 #CFLAGS += -Wextra -pedantic
 CXXFLAGS = -std=gnu++11
