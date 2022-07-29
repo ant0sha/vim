@@ -2218,7 +2218,30 @@ process_message(void)
 		    0);
 	    if (len < 0)
 		dead_key = DEAD_KEY_SET_DEFAULT;
-	    else if (msg.message == WM_KEYDOWN && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_LMENU) & 0x8000))
+
+	    if (len <= 0)
+	    {
+		if (ans_file) { fprintf(ans_file, "....recognized as dead_key? len=%d\n", len); fflush(ans_file); }
+		if (   dead_key == DEAD_KEY_SET_DEFAULT
+		    && (GetKeyState(VK_CONTROL) & 0x8000)
+		    && (   (vk == 221 && scan_code == 26) // AZERTY CTRL+dead_circumflex
+			|| (vk == 220 && scan_code == 41) // QWERTZ CTRL+dead_circumflex
+		       )
+		   )
+		{
+		    if (ans_file) { fprintf(ans_file, ".....fake dead-circumflex ESC workaround...\n"); fflush(ans_file); }
+		    // post WM_CHAR='[' - which will be interpreted with CTRL
+		    // stil hold as ESC
+		    PostMessageW(msg.hwnd, WM_CHAR, '[', 0);
+		    // ask _OnChar() to not touch this state, wait for next key
+		    // press and maintain knowledge that we are "poisoned" with
+		    // "dead state"
+		    dead_key = DEAD_KEY_TRANSIENT_IN_ON_CHAR;
+		}
+		return;
+	    }
+
+	    if (msg.message == WM_KEYDOWN && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_LMENU) & 0x8000))
 	    {
 		int len2;
 		WCHAR	ch2[8];
@@ -2287,28 +2310,6 @@ process_message(void)
 		    // since it is handled here already
 		    lParamForOnChar |= LPARAM_WM_CHAR_IGNORE_SHIFT;
 		}
-	    }
-
-	    if (len <= 0)
-	    {
-		if (ans_file) { fprintf(ans_file, "....recognized as dead_key? len=%d\n", len); fflush(ans_file); }
-		if (   dead_key == DEAD_KEY_SET_DEFAULT
-		    && (GetKeyState(VK_CONTROL) & 0x8000)
-		    && (   (vk == 221 && scan_code == 26) // AZERTY CTRL+dead_circumflex
-			|| (vk == 220 && scan_code == 41) // QWERTZ CTRL+dead_circumflex
-		       )
-		   )
-		{
-		    if (ans_file) { fprintf(ans_file, ".....fake dead-circumflex ESC workaround...\n"); fflush(ans_file); }
-		    // post WM_CHAR='[' - which will be interpreted with CTRL
-		    // stil hold as ESC
-		    PostMessageW(msg.hwnd, WM_CHAR, '[', 0);
-		    // ask _OnChar() to not touch this state, wait for next key
-		    // press and maintain knowledge that we are "poisoned" with
-		    // "dead state"
-		    dead_key = DEAD_KEY_TRANSIENT_IN_ON_CHAR;
-		}
-		return;
 	    }
 
 	    if (ans_file) {
