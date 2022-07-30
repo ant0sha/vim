@@ -2172,8 +2172,12 @@ process_message(void)
 	    return;
 	}
 
+	if (vk == VK_SPACE && (GetKeyState(VK_LMENU) & 0x8000)) 
+	    if (ans_file) { fprintf(ans_file, "..VK_SPACE with VK_LMENU, will be skipped in the loop\n"); fflush(ans_file); }
+
 	for (i = 0; special_keys[i].key_sym != 0; i++)
 	{
+
 	    // ignore VK_SPACE when ALT key pressed: system menu
 	    if (special_keys[i].key_sym == vk
 		    && (vk != VK_SPACE || !(GetKeyState(VK_LMENU) & 0x8000)))
@@ -2202,13 +2206,16 @@ process_message(void)
 		    break;
 #endif
 		modifiers = get_active_modifiers();
+		if (ans_file) { fprintf(ans_file, "..special_keys[%d], modifiers=%d..\n", i, modifiers); fflush(ans_file); }
 
 		if (special_keys[i].vim_code1 == NUL)
 		    key = special_keys[i].vim_code0;
 		else
 		    key = TO_SPECIAL(special_keys[i].vim_code0,
 						   special_keys[i].vim_code1);
+		if (ans_file) { fprintf(ans_file, "..special_keys[%d], key=%d..\n", i, key); fflush(ans_file); }
 		key = simplify_key(key, &modifiers);
+		if (ans_file) { fprintf(ans_file, "..special_keys[%d], key=%d, modifiers=%d (simplified)..\n", i, key, modifiers); fflush(ans_file); }
 		if (key == CSI)
 		    key = K_CSI;
 
@@ -2233,7 +2240,27 @@ process_message(void)
 
 		    // Handle "key" as a Unicode character.
 		    len = char_to_string(key, string, 40, FALSE);
+		    if (len == 1 && string[0] == 32 && modifiers == 0)
+		    {
+			// recognized space char press, do not
+			// return it hardcoded, but translate
+			// using ToUnicode() - may be there are
+			// some interesting mappings exists (or bepo dvorak layout
+			// for example requires AltGr+space to be
+			// _)
+			if (ans_file) { fprintf(ans_file, "..special_keys[%d], key=%d is space, handle usually (bepo)\n", i, key); fflush(ans_file); }
+			continue;
+		    }
 		    add_to_input_buf(string, len);
+		    if (ans_file) {
+			int j;
+		       	fprintf(ans_file, "..special_keys[%d], key=%d...a2b{", i, key);
+			for (j=0;j<len;++j) {
+			    fprintf(ans_file, "%d,", string[j]);
+			}
+			fprintf(ans_file, "}\n");
+			fflush(ans_file);
+		    }
 		}
 		break;
 	    }
@@ -8874,6 +8901,7 @@ test_gui_w32_setkblayout(dict_T *args)
 	FR: GetKeyboardLayoutName: 0000080C
 	DE: GetKeyboardLayoutName: 00000407
 	RU: GetKeyboardLayoutName: 00000419
+      BEPO: GetKeyboardLayoutName: B001040C
 	*/
 
 
@@ -8888,6 +8916,8 @@ test_gui_w32_setkblayout(dict_T *args)
 	kblayout_internal_name = "00000407";
     else if (STRICMP(kblayout, "RU") == 0)
 	kblayout_internal_name = "00000419";
+    else if (STRICMP(kblayout, "BEPO") == 0)
+	kblayout_internal_name = "B001040C";
     else
     {
 	semsg(_(e_invalid_argument_str), kblayout);
