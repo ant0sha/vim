@@ -2180,7 +2180,7 @@ process_message(void)
 
 	    // ignore VK_SPACE when ALT key pressed: system menu
 	    if (special_keys[i].key_sym == vk
-		    && (vk != VK_SPACE || !(GetKeyState(VK_LMENU) & 0x8000)))
+		    && (vk != VK_SPACE || !(GetKeyState(VK_MENU) & 0x8000)))
 	    {
 		if (ans_file) { fprintf(ans_file, "..special_keys[%d] vk=%d matched..\n", i, vk); fflush(ans_file); }
 		/*
@@ -2240,17 +2240,17 @@ process_message(void)
 
 		    // Handle "key" as a Unicode character.
 		    len = char_to_string(key, string, 40, FALSE);
-		    if (len == 1 && string[0] == 32 && modifiers == 0)
-		    {
-			// recognized space char press, do not
-			// return it hardcoded, but translate
-			// using ToUnicode() - may be there are
-			// some interesting mappings exists (or bepo dvorak layout
-			// for example requires AltGr+space to be
-			// _)
-			if (ans_file) { fprintf(ans_file, "..special_keys[%d], key=%d is space, handle usually (bepo)\n", i, key); fflush(ans_file); }
-			continue;
-		    }
+		    //if (len == 1 && string[0] == 32 && modifiers == 0)
+		    //{
+		    //    // recognized space char press, do not
+		    //    // return it hardcoded, but translate
+		    //    // using ToUnicode() - may be there are
+		    //    // some interesting mappings exists (or bepo dvorak layout
+		    //    // for example requires AltGr+space to be
+		    //    // _)
+		    //    if (ans_file) { fprintf(ans_file, "..special_keys[%d], key=%d is space, handle usually (bepo)\n", i, key); fflush(ans_file); }
+		    //    continue;
+		    //}
 		    add_to_input_buf(string, len);
 		    if (ans_file) {
 			int j;
