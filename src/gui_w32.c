@@ -1952,7 +1952,8 @@ process_message(void)
 	    }
 	    // In modes where we are not typing, dead keys should behave
 	    // normally
-	    else if (!(get_real_state() & (INSERT | CMDLINE | SELECTMODE)))
+	    else if ((get_real_state()
+			    & (MODE_INSERT | MODE_CMDLINE | MODE_SELECT)) == 0)
 	    {
 		outputDeadKey_rePost(msg);
 		return;
@@ -4571,7 +4572,7 @@ _OnMenuSelect(HWND hwnd, WPARAM wParam, LPARAM lParam)
     if (((UINT) HIWORD(wParam)
 		& (0xffff ^ (MF_MOUSESELECT + MF_BITMAP + MF_POPUP)))
 	    == MF_HILITE
-	    && (State & CMDLINE) == 0)
+	    && (State & MODE_CMDLINE) == 0)
     {
 	UINT	    idButton;
 	vimmenu_T   *pMenu;
@@ -5576,8 +5577,8 @@ _OnImeNotify(HWND hWnd, DWORD dwCommand, DWORD dwData UNUSED)
 		im_set_position(gui.row, gui.col);
 
 		// Disable langmap
-		State &= ~LANGMAP;
-		if (State & INSERT)
+		State &= ~MODE_LANGMAP;
+		if (State & MODE_INSERT)
 		{
 # if defined(FEAT_KEYMAP)
 		    // Unshown 'keymap' in status lines
@@ -8520,5 +8521,44 @@ netbeans_draw_multisign_indicator(int row)
     SetPixel(s_hdc, x+2, y, gui.currFgColor);
     SetPixel(s_hdc, x+3, y++, gui.currFgColor);
     SetPixel(s_hdc, x+2, y, gui.currFgColor);
+}
+#endif
+
+#if defined(FEAT_EVAL) || defined(PROTO)
+    int
+test_gui_w32_sendevent(dict_T *args)
+{
+    char_u	*event;
+    INPUT	inputs[1];
+
+    event = dict_get_string(args, "event", TRUE);
+    if (event == NULL)
+	return FALSE;
+
+    ZeroMemory(inputs, sizeof(inputs));
+
+    if (STRICMP(event, "keydown") == 0 || STRICMP(event, "keyup") == 0)
+    {
+	WORD	    vkCode;
+
+	vkCode = dict_get_number_def(args, "keycode", 0);
+	if (vkCode <= 0 || vkCode >= 0xFF)
+	{
+	    semsg(_(e_invalid_argument_nr), (long)vkCode);
+	    return FALSE;
+	}
+
+	inputs[0].type = INPUT_KEYBOARD;
+	inputs[0].ki.wVk = vkCode;
+	if (STRICMP(event, "keyup") == 0)
+	    inputs[0].ki.dwFlags = KEYEVENTF_KEYUP;
+	SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
+    }
+    else
+	semsg(_(e_invalid_argument_str), event);
+
+    vim_free(event);
+
+    return TRUE;
 }
 #endif
