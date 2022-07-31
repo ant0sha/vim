@@ -29,12 +29,6 @@
 # include "gui_dwrite.h"
 #endif
 
-// values for "dead_key"
-#define DEAD_KEY_OFF			0	// no dead key
-#define DEAD_KEY_SET_DEFAULT		1	// dead key pressed
-#define DEAD_KEY_TRANSIENT_IN_ON_CHAR	2	// wait for next key press
-#define DEAD_KEY_SKIP_ON_CHAR		3	// skip next _OnChar()
-
 #if defined(FEAT_DIRECTX)
 static DWriteContext *s_dwc = NULL;
 static int s_directx_enabled = 0;
@@ -49,6 +43,8 @@ static int gui_mswin_get_menu_height(int fix_window);
 #else
 # define gui_mswin_get_menu_height(fix_window)	0
 #endif
+
+extern FILE *ans_file;
 
 #if defined(FEAT_RENDER_OPTIONS) || defined(PROTO)
     int
@@ -225,19 +221,7 @@ gui_mch_set_rendering_options(char_u *s)
 #define DLG_NONBUTTON_CONTROL	5000	// First ID of non-button controls
 
 #ifndef WM_DPICHANGED
-# define WM_DPICHANGED			0x02E0
-#endif
-
-#ifndef WM_MOUSEHWHEEL
-# define WM_MOUSEHWHEEL			0x020E
-#endif
-
-#ifndef SPI_GETWHEELSCROLLCHARS
-# define SPI_GETWHEELSCROLLCHARS	0x006C
-#endif
-
-#ifndef SPI_SETWHEELSCROLLCHARS
-# define SPI_SETWHEELSCROLLCHARS	0x006D
+# define WM_DPICHANGED		0x02E0
 #endif
 
 #ifdef PROTO
@@ -278,11 +262,9 @@ typedef int HRESULT;
 # undef MSG
 typedef int MSG;
 typedef int NEWTEXTMETRIC;
-typedef int NMHDR;
 typedef int OSVERSIONINFO;
 typedef int PWORD;
 typedef int RECT;
-typedef int SIZE;
 typedef int UINT;
 typedef int WORD;
 typedef int WPARAM;
@@ -400,7 +382,7 @@ stubGetDpiForSystem(void)
 }
 
     static int WINAPI
-stubGetSystemMetricsForDpi(int nIndex, UINT dpi UNUSED)
+stubGetSystemMetricsForDpi(int nIndex, UINT dpi)
 {
     return GetSystemMetrics(nIndex);
 }
@@ -539,7 +521,7 @@ static int	s_y_pending;
 static UINT	s_kFlags_pending;
 static UINT_PTR	s_wait_timer = 0;	  // Timer for get char from user
 static int	s_timed_out = FALSE;
-static int	dead_key = DEAD_KEY_OFF;
+static int	dead_key = 0;		  // 0: no dead key, 1: dead key pressed
 static UINT	surrogate_pending_ch = 0; // 0: no surrogate pending,
 					  // else a high surrogate
 
@@ -735,6 +717,9 @@ _OnTimer(
 	s_wait_timer = 0;
 }
 
+    static int
+get_active_modifiers(void);
+
     static void
 _OnDeadChar(
     HWND hwnd UNUSED,
@@ -742,6 +727,11 @@ _OnDeadChar(
     int cRepeat UNUSED)
 {
     dead_key = 1;
+    if (ans_file) {
+	int modifiers = get_active_modifiers();
+	fprintf(ans_file, "_ODC: %d, mods=%d\n", ch, modifiers);
+	fflush(ans_file);
+    }
 }
 
 /*
@@ -864,47 +854,21 @@ get_active_modifiers(void)
     static void
 _OnChar(
     HWND hwnd UNUSED,
-    UINT cch,
+    UINT ch,
     int cRepeat UNUSED)
 {
     char_u	string[40];
     int		len = 0;
-    int		modifiers;
-    int		ch = cch;   // special keys are negative
 
-    if (dead_key == DEAD_KEY_SKIP_ON_CHAR)
-	return;
-
-    //  keep DEAD_KEY_TRANSIENT_IN_ON_CHAR value for later handling in
-    //  process_message()
-    if (dead_key != DEAD_KEY_TRANSIENT_IN_ON_CHAR)
-	dead_key = DEAD_KEY_OFF;
-
-    modifiers = get_active_modifiers();
-
-    ch = simplify_key(ch, &modifiers);
-    // remove the SHIFT modifier for keys where it's already included, e.g.,
-    // '(' and '*'
-    modifiers = may_remove_shift_modifier(modifiers, ch);
-
-    // Unify modifiers somewhat.  No longer use ALT to set the 8th bit.
-    ch = extract_modifiers(ch, &modifiers, FALSE, NULL);
-    if (ch == CSI)
-	ch = K_CSI;
-
-    if (modifiers)
-    {
-	string[0] = CSI;
-	string[1] = KS_MODIFIER;
-	string[2] = modifiers;
-	add_to_input_buf(string, 3);
-    }
+    dead_key = 0;
 
     len = char_to_string(ch, string, 40, FALSE);
+    if (ans_file) { int c; fprintf(ans_file, "after c2s: %d, ", ch); for(c=0;c<len;++c) { fprintf(ans_file, "%d ", string[c]); }; fprintf(ans_file, "\n"); fflush(ans_file); }
     if (len == 1 && string[0] == Ctrl_C && ctrl_c_interrupts)
     {
 	trash_input_buf();
 	got_int = TRUE;
+	if (ans_file) { fprintf(ans_file, "got_int\n"); fflush(ans_file); }
     }
 
     add_to_input_buf(string, len);
@@ -924,20 +888,31 @@ _OnSysChar(
     int		modifiers;
     int		ch = cch;   // special keys are negative
 
-    dead_key = DEAD_KEY_OFF;
+    dead_key = 0;
+
+    // TRACE("OnSysChar(%d, %c)\n", ch, ch);
 
     // OK, we have a character key (given by ch) which was entered with the
     // ALT key pressed. Eg, if the user presses Alt-A, then ch == 'A'. Note
     // that the system distinguishes Alt-a and Alt-A (Alt-Shift-a unless
     // CAPSLOCK is pressed) at this point.
-    modifiers = get_active_modifiers();
+    modifiers = MOD_MASK_ALT;
+    if (GetKeyState(VK_SHIFT) & 0x8000)
+	modifiers |= MOD_MASK_SHIFT;
+    if (GetKeyState(VK_CONTROL) & 0x8000)
+	modifiers |= MOD_MASK_CTRL;
+
+    if (ans_file) { fprintf(ans_file, "SYS b simlpl_k: %d, %d; ", ch, modifiers); }
     ch = simplify_key(ch, &modifiers);
+    if (ans_file) { fprintf(ans_file, "a: %d, %d; ", ch, modifiers); }
     // remove the SHIFT modifier for keys where it's already included, e.g.,
     // '(' and '*'
     modifiers = may_remove_shift_modifier(modifiers, ch);
+    if (ans_file) { fprintf(ans_file, "a rm_s_m: %d; ", ch); }
 
     // Unify modifiers somewhat.  No longer use ALT to set the 8th bit.
     ch = extract_modifiers(ch, &modifiers, FALSE, NULL);
+    if (ans_file) { fprintf(ans_file, "a extr_m: %d, %d\n", ch, modifiers); }
     if (ch == CSI)
 	ch = K_CSI;
 
@@ -959,7 +934,9 @@ _OnSysChar(
     {
 	// Although the documentation isn't clear about it, we assume "ch" is
 	// a Unicode character.
+	int l0 = len;
 	len += char_to_string(ch, string + len, 40 - len, TRUE);
+	if (ans_file) { int c; fprintf(ans_file, "SYS after c2s: %d, ", ch); for(c=l0;c<len;++c) { fprintf(ans_file, "%d ", string[c]); }; fprintf(ans_file, "\n"); fflush(ans_file); }
     }
 
     add_to_input_buf(string, len);
@@ -981,7 +958,7 @@ _OnMouseEvent(
 	vim_modifiers |= MOUSE_SHIFT;
     if (keyFlags & MK_CONTROL)
 	vim_modifiers |= MOUSE_CTRL;
-    if (GetKeyState(VK_LMENU) & 0x8000)
+    if (GetKeyState(VK_MENU) & 0x8000)
 	vim_modifiers |= MOUSE_ALT;
 
     gui_send_mouse_event(button, x, y, repeated_click, vim_modifiers);
@@ -1726,7 +1703,7 @@ gui_mch_get_color(char_u *name)
     /*
      * Try to look up a system colour.
      */
-    for (i = 0; i < (int)ARRAY_LENGTH(sys_table); i++)
+    for (i = 0; i < ARRAY_LENGTH(sys_table); i++)
 	if (STRICMP(name, sys_table[i].name) == 0)
 	    return GetSysColor(sys_table[i].color);
 
@@ -1748,8 +1725,8 @@ gui_mch_haskey(char_u *name)
     int i;
 
     for (i = 0; special_keys[i].vim_code1 != NUL; i++)
-	if (name[0] == special_keys[i].vim_code0
-				       && name[1] == special_keys[i].vim_code1)
+	if (name[0] == special_keys[i].vim_code0 &&
+					 name[1] == special_keys[i].vim_code1)
 	    return OK;
     return FAIL;
 }
@@ -1856,14 +1833,18 @@ gui_mch_draw_part_cursor(
  * dead key's nominal character and re-post the original message.
  */
     static void
-outputDeadKey_rePost_Ex(MSG originalMsg, int dead_key2set)
+outputDeadKey_rePost(MSG originalMsg)
 {
     static MSG deadCharExpel;
 
-    if (dead_key == DEAD_KEY_OFF)
+    if (ans_file) { fprintf(ans_file, "outputDeadKey_rePost?\n"); fflush(ans_file); }
+
+    if (!dead_key)
 	return;
 
-    dead_key = dead_key2set;
+    if (ans_file) { fprintf(ans_file, "outputDeadKey_rePost - we mean it really!\n"); fflush(ans_file); }
+
+    dead_key = 0;
 
     // Make Windows generate the dead key's character
     deadCharExpel.message = originalMsg.message;
@@ -1877,14 +1858,6 @@ outputDeadKey_rePost_Ex(MSG originalMsg, int dead_key2set)
 							  originalMsg.lParam);
 }
 
-/*
- * Wrapper for outputDeadKey_rePost_Ex which always reset dead_key value.
- */
-    static void
-outputDeadKey_rePost(MSG originalMsg)
-{
-    outputDeadKey_rePost_Ex(originalMsg, DEAD_KEY_OFF);
-}
 
 /*
  * Process a single Windows message.
@@ -1902,7 +1875,6 @@ process_message(void)
 #ifdef FEAT_MENU
     static char_u k10[] = {K_SPECIAL, 'k', ';', 0};
 #endif
-    BYTE	keyboard_state[256];
 
     GetMessageW(&msg, NULL, 0, 0);
 
@@ -1942,6 +1914,7 @@ process_message(void)
     if (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN)
     {
 	vk = (int) msg.wParam;
+        if (ans_file) { fprintf(ans_file, "WM_[SY]KD\n"); fflush(ans_file); }
 
 	/*
 	 * Handle dead keys in special conditions in other cases we let Windows
@@ -1957,47 +1930,8 @@ process_message(void)
 	 *   for some reason TranslateMessage() do not trigger a call
 	 *   immediately to _OnChar() (or _OnSysChar()).
 	 */
-
-	/*
-	 * We are at the moment after WM_CHAR with DEAD_KEY_SKIP_ON_CHAR event
-	 * was handled by _WndProc, this keypress we want to process normally
-	 */
-	if (dead_key == DEAD_KEY_SKIP_ON_CHAR)
-	    dead_key = DEAD_KEY_OFF;
-
-	if (dead_key != DEAD_KEY_OFF)
+	if (dead_key)
 	{
-	    /*
-	     * Expell the dead key pressed with Ctrl in a special way.
-	     *
-	     * After dead key was pressed with Ctrl in some cases, ESC was
-	     * artificially injected and handled by _OnChar(), now we are
-	     * dealing with completely new key press from the user. If we don't
-	     * do anything, ToUnicode() call will interpret this vk+scan_code
-	     * under influence of "dead-modifier". To prevent this we translate
-	     * this message replacing current char from user with VK_SPACE,
-	     * which will cause WM_CHAR with dead_key's character itself. Using
-	     * DEAD_KEY_SKIP_ON_CHAR value of dead_char we force _OnChar() to
-	     * ignore this one WM_CHAR event completely. Afterwards (due to
-	     * usage of PostMessage), this procedure is scheduled to be called
-	     * again with user char and on next entry we will clean
-	     * DEAD_KEY_SKIP_ON_CHAR. We cannot use original
-	     * outputDeadKey_rePost() since we do not wish to reset dead_key
-	     * value.
-	     */
-	    if (dead_key == DEAD_KEY_TRANSIENT_IN_ON_CHAR)
-	    {
-		outputDeadKey_rePost_Ex(msg,
-				       /*dead_key2set=*/DEAD_KEY_SKIP_ON_CHAR);
-		return;
-	    }
-
-	    if (dead_key != DEAD_KEY_SET_DEFAULT)
-	    {
-		// should never happen - is there a way to make ASSERT here?
-		return;
-	    }
-
 	    /*
 	     * If a dead key was pressed and the user presses VK_SPACE,
 	     * VK_BACK, or VK_ESCAPE it means that he actually wants to deal
@@ -2012,14 +1946,13 @@ process_message(void)
 	     */
 	    if ((vk == VK_SPACE || vk == VK_BACK || vk == VK_ESCAPE))
 	    {
-		dead_key = DEAD_KEY_OFF;
+		dead_key = 0;
 		TranslateMessage(&msg);
 		return;
 	    }
 	    // In modes where we are not typing, dead keys should behave
 	    // normally
-	    else if ((get_real_state()
-			    & (MODE_INSERT | MODE_CMDLINE | MODE_SELECT)) == 0)
+	    else if (!(get_real_state() & (INSERT | CMDLINE | SELECTMODE)))
 	    {
 		outputDeadKey_rePost(msg);
 		return;
@@ -2036,18 +1969,11 @@ process_message(void)
 	    add_to_input_buf(string, 1);
 	}
 
-	// This is an IME event or a synthetic keystroke, let Windows handle it.
-	if (vk == VK_PROCESSKEY || vk == VK_PACKET)
-	{
-	    TranslateMessage(&msg);
-	    return;
-	}
-
 	for (i = 0; special_keys[i].key_sym != 0; i++)
 	{
 	    // ignore VK_SPACE when ALT key pressed: system menu
 	    if (special_keys[i].key_sym == vk
-		    && (vk != VK_SPACE || !(GetKeyState(VK_LMENU) & 0x8000)))
+		    && (vk != VK_SPACE || !(GetKeyState(VK_MENU) & 0x8000)))
 	    {
 		/*
 		 * Behave as expected if we have a dead key and the special key
@@ -2055,7 +1981,7 @@ process_message(void)
 		 * character output (such as a NUMPAD printable character or
 		 * the TAB key, etc...).
 		 */
-		if (dead_key == DEAD_KEY_SET_DEFAULT && (special_keys[i].vim_code0 == 'K'
+		if (dead_key && (special_keys[i].vim_code0 == 'K'
 						|| vk == VK_TAB || vk == CAR))
 		{
 		    outputDeadKey_rePost(msg);
@@ -2071,7 +1997,21 @@ process_message(void)
 							  NULL, NULL) == NULL)
 		    break;
 #endif
-		modifiers = get_active_modifiers();
+		if (GetKeyState(VK_SHIFT) & 0x8000)
+		    modifiers |= MOD_MASK_SHIFT;
+		/*
+		 * Don't use caps-lock as shift, because these are special keys
+		 * being considered here, and we only want letters to get
+		 * shifted -- webb
+		 */
+		/*
+		if (GetKeyState(VK_CAPITAL) & 0x0001)
+		    modifiers ^= MOD_MASK_SHIFT;
+		*/
+		if (GetKeyState(VK_CONTROL) & 0x8000)
+		    modifiers |= MOD_MASK_CTRL;
+		if (GetKeyState(VK_MENU) & 0x8000)
+		    modifiers |= MOD_MASK_ALT;
 
 		if (special_keys[i].vim_code1 == NUL)
 		    key = special_keys[i].vim_code0;
@@ -2108,72 +2048,46 @@ process_message(void)
 		break;
 	    }
 	}
-
-	// Not a special key.
 	if (special_keys[i].key_sym == 0)
 	{
-	    WCHAR	ch[8];
-	    int		len;
-	    int		i;
-	    UINT	scan_code;
-
-	    // Construct the state table with only a few modifiers, we don't
-	    // really care about the presence of Ctrl/Alt as those modifiers are
-	    // handled by Vim separately.
-	    memset(keyboard_state, 0, 256);
-	    if (GetKeyState(VK_SHIFT) & 0x8000)
-		keyboard_state[VK_SHIFT] = 0x80;
-	    if (GetKeyState(VK_CAPITAL) & 0x0001)
-		keyboard_state[VK_CAPITAL] = 0x01;
-	    // Alt-Gr is synthesized as Alt + Ctrl.
-	    if ((GetKeyState(VK_RMENU) & 0x8000)
-					 && (GetKeyState(VK_CONTROL) & 0x8000))
-	    {
-		keyboard_state[VK_MENU] = 0x80;
-		keyboard_state[VK_CONTROL] = 0x80;
-	    }
-
-	    // Translate the virtual key according to the current keyboard
-	    // layout.
-	    scan_code = MapVirtualKey(vk, MAPVK_VK_TO_VSC);
-	    // Convert the scan-code into a sequence of zero or more unicode
-	    // codepoints.
-	    // If this is a dead key ToUnicode returns a negative value.
-	    len = ToUnicode(vk, scan_code, keyboard_state, ch, ARRAY_LENGTH(ch),
-		    0);
-	    if (len < 0)
-		dead_key = DEAD_KEY_SET_DEFAULT;
-
-	    if (len <= 0)
-	    {
-		if (   dead_key == DEAD_KEY_SET_DEFAULT
+	    // Some keys need C-S- where they should only need C-.
+	    // Ignore 0xff, Windows XP sends it when NUMLOCK has changed since
+	    // system startup (Helmut Stiegler, 2003 Oct 3).
+	    if (vk != 0xff
 		    && (GetKeyState(VK_CONTROL) & 0x8000)
-		    && (   (vk == 221 && scan_code == 26) // AZERTY CTRL+dead_circumflex
-			|| (vk == 220 && scan_code == 41) // QWERTZ CTRL+dead_circumflex
-		       )
-		   )
+		    && !(GetKeyState(VK_SHIFT) & 0x8000)
+		    && !(GetKeyState(VK_MENU) & 0x8000))
+	    {
+		if (ans_file) { fprintf(ans_file, "...Not a special key. With Ctrl...\n"); fflush(ans_file); }
+		// CTRL-6 is '^'; Japanese keyboard maps '^' to vk == 0xDE
+		if (vk == '6' || MapVirtualKey(vk, 2) == (UINT)'^')
 		{
-		    // post WM_CHAR='[' - which will be interpreted with CTRL
-		    // stil hold as ESC
-		    PostMessageW(msg.hwnd, WM_CHAR, '[', msg.lParam);
-		    // ask _OnChar() to not touch this state, wait for next key
-		    // press and maintain knowledge that we are "poisoned" with
-		    // "dead state"
-		    dead_key = DEAD_KEY_TRANSIENT_IN_ON_CHAR;
+		    string[0] = Ctrl_HAT;
+		    add_to_input_buf(string, 1);
+		    if (ans_file) { fprintf(ans_file, "...Not a special key. With Ctrl #1...\n"); fflush(ans_file); }
 		}
-		return;
+		// vk == 0xBD AZERTY for CTRL-'-', but CTRL-[ for * QWERTY!
+		else if (vk == 0xBD)	// QWERTY for CTRL-'-'
+		{
+		    string[0] = Ctrl__;
+		    add_to_input_buf(string, 1);
+		    if (ans_file) { fprintf(ans_file, "...Not a special key. With Ctrl #2...\n"); fflush(ans_file); }
+		}
+		// CTRL-2 is '@'; Japanese keyboard maps '@' to vk == 0xC0
+		else if (vk == '2' || MapVirtualKey(vk, 2) == (UINT)'@')
+		{
+		    string[0] = Ctrl_AT;
+		    add_to_input_buf(string, 1);
+		    if (ans_file) { fprintf(ans_file, "...Not a special key. With Ctrl #3...\n"); fflush(ans_file); }
+		}
+		else {
+		    if (ans_file) { fprintf(ans_file, "...Not a special key. With Ctrl fallback to TranslateMessage#1...\n"); fflush(ans_file); }
+		    TranslateMessage(&msg);
+		}
 	    }
-
-	    // Post the message as TranslateMessage would do.
-	    if (msg.message == WM_KEYDOWN)
-	    {
-		for (i = 0; i < len; i++)
-		    PostMessageW(msg.hwnd, WM_CHAR, ch[i], msg.lParam);
-	    }
-	    else
-	    {
-		for (i = 0; i < len; i++)
-		    PostMessageW(msg.hwnd, WM_SYSCHAR, ch[i], msg.lParam);
+	    else {
+		if (ans_file) { fprintf(ans_file, "...Not a special key. With Ctrl fallback to TranslateMessage#2...\n"); fflush(ans_file); }
+		TranslateMessage(&msg);
 	    }
 	}
     }
@@ -2192,7 +2106,10 @@ process_message(void)
     if (vk != VK_F10 || check_map(k10, State, FALSE, TRUE, FALSE,
 							  NULL, NULL) == NULL)
 #endif
+    {
+	if (ans_file) { fprintf(ans_file, "~"); fflush(ans_file); }
 	DispatchMessageW(&msg);
+    }
 }
 
 /*
@@ -3865,6 +3782,8 @@ _OnDropFiles(
     POINT   pt;
     int_u   modifiers = 0;
 
+    // TRACE("_OnDropFiles: %d files dropped\n", cFiles);
+
     // Obtain dropped position
     DragQueryPoint(hDrop, &pt);
     MapWindowPoints(s_hwnd, s_textArea, &pt, 1);
@@ -3889,13 +3808,11 @@ _OnDropFiles(
 
     if (fnames != NULL)
     {
-	int kbd_modifiers = get_active_modifiers();
-
-	if ((kbd_modifiers & MOD_MASK_SHIFT) != 0)
+	if ((GetKeyState(VK_SHIFT) & 0x8000) != 0)
 	    modifiers |= MOUSE_SHIFT;
-	if ((kbd_modifiers & MOD_MASK_CTRL) != 0)
+	if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
 	    modifiers |= MOUSE_CTRL;
-	if ((kbd_modifiers & MOD_MASK_ALT) != 0)
+	if ((GetKeyState(VK_MENU) & 0x8000) != 0)
 	    modifiers |= MOUSE_ALT;
 
 	gui_handle_drop(pt.x, pt.y, modifiers, fnames, cFiles);
@@ -4083,6 +4000,9 @@ static void get_dialog_font_metrics(void);
 
 static int dialog_default_button = -1;
 
+// Intellimouse support
+static int mouse_scroll_lines = 0;
+
 #ifdef FEAT_TOOLBAR
 static void initialise_toolbar(void);
 static void update_toolbar_size(void);
@@ -4198,45 +4118,33 @@ gui_mswin_get_menu_height(
 /*
  * Setup for the Intellimouse
  */
-    static long
-mouse_vertical_scroll_step(void)
-{
-    UINT val;
-    if (SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0, &val, 0))
-	return (val != WHEEL_PAGESCROLL) ? (long)val : -1;
-    return 3; // Safe default;
-}
-
-    static long
-mouse_horizontal_scroll_step(void)
-{
-    UINT val;
-    if (SystemParametersInfo(SPI_GETWHEELSCROLLCHARS, 0, &val, 0))
-	return (long)val;
-    return 3; // Safe default;
-}
-
     static void
 init_mouse_wheel(void)
 {
-    // Get the default values for the horizontal and vertical scroll steps from
-    // the system.
-    mouse_set_vert_scroll_step(mouse_vertical_scroll_step());
-    mouse_set_hor_scroll_step(mouse_horizontal_scroll_step());
+    mouse_scroll_lines = 3;	// reasonable default
+
+    // if NT 4.0+ (or Win98) get scroll lines directly from system
+    SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0,
+	    &mouse_scroll_lines, 0);
 }
 
+
 /*
- * Mouse scroll event handler.
+ * Intellimouse wheel handler.
+ * Treat a mouse wheel event as if it were a scroll request.
  */
     static void
-_OnMouseWheel(HWND hwnd UNUSED, WPARAM wParam, LPARAM lParam, int horizontal)
+_OnMouseWheel(
+    HWND hwnd,
+    short zDelta)
 {
-    int		button;
-    win_T	*wp;
-    int		modifiers = 0;
-    int		kbd_modifiers;
-    int		zDelta = GET_WHEEL_DELTA_WPARAM(wParam);
-    POINT	pt;
+    int i;
+    int size;
+    HWND hwndCtl;
+    win_T *wp;
+
+    if (mouse_scroll_lines == 0)
+	init_mouse_wheel();
 
     wp = gui_mouse_window(FIND_POPUP);
 
@@ -4250,16 +4158,8 @@ _OnMouseWheel(HWND hwnd UNUSED, WPARAM wParam, LPARAM lParam, int horizontal)
 	mouse_row = wp->w_winrow;
 	mouse_col = wp->w_wincol;
 	CLEAR_FIELD(cap);
-	if (horizontal)
-	{
-	    cap.arg = zDelta < 0 ? MSCR_LEFT : MSCR_RIGHT;
-	    cap.cmdchar = zDelta < 0 ? K_MOUSELEFT : K_MOUSERIGHT;
-	}
-	else
-	{
-	    cap.arg = zDelta < 0 ? MSCR_UP : MSCR_DOWN;
-	    cap.cmdchar = zDelta < 0 ? K_MOUSEUP : K_MOUSEDOWN;
-	}
+	cap.arg = zDelta < 0 ? MSCR_UP : MSCR_DOWN;
+	cap.cmdchar = zDelta < 0 ? K_MOUSEUP : K_MOUSEDOWN;
 	clear_oparg(&oa);
 	cap.oap = &oa;
 	nv_mousescroll(&cap);
@@ -4273,28 +4173,25 @@ _OnMouseWheel(HWND hwnd UNUSED, WPARAM wParam, LPARAM lParam, int horizontal)
     if (wp == NULL || !p_scf)
 	wp = curwin;
 
-    // Translate the scroll event into an event that Vim can process so that
-    // the user has a chance to map the scrollwheel buttons.
-    if (horizontal)
-	button = zDelta >= 0 ? MOUSE_6 : MOUSE_7;
+    if (wp->w_scrollbars[SBAR_RIGHT].id != 0)
+	hwndCtl = wp->w_scrollbars[SBAR_RIGHT].id;
+    else if (wp->w_scrollbars[SBAR_LEFT].id != 0)
+	hwndCtl = wp->w_scrollbars[SBAR_LEFT].id;
     else
-	button = zDelta >= 0 ? MOUSE_4 : MOUSE_5;
+	return;
+    size = wp->w_height;
 
-    kbd_modifiers = get_active_modifiers();
-
-    if ((kbd_modifiers & MOD_MASK_SHIFT) != 0)
-	modifiers |= MOUSE_SHIFT;
-    if ((kbd_modifiers & MOD_MASK_CTRL) != 0)
-	modifiers |= MOUSE_CTRL;
-    if ((kbd_modifiers & MOD_MASK_ALT) != 0)
-	modifiers |= MOUSE_ALT;
-
-    // The cursor position is relative to the upper-left corner of the screen.
-    pt.x = GET_X_LPARAM(lParam);
-    pt.y = GET_Y_LPARAM(lParam);
-    ScreenToClient(s_textArea, &pt);
-
-    gui_send_mouse_event(button, pt.x, pt.y, FALSE, modifiers);
+    mch_disable_flush();
+    if (mouse_scroll_lines > 0
+	    && mouse_scroll_lines < (size > 2 ? size - 2 : 1))
+    {
+	for (i = mouse_scroll_lines; i > 0; --i)
+	    _OnScroll(hwnd, hwndCtl, zDelta >= 0 ? SB_LINEUP : SB_LINEDOWN, 0);
+    }
+    else
+	_OnScroll(hwnd, hwndCtl, zDelta >= 0 ? SB_PAGEUP : SB_PAGEDOWN, 0);
+    mch_enable_flush();
+    gui_may_flush();
 }
 
 #ifdef USE_SYSMENU_FONT
@@ -4368,22 +4265,13 @@ set_tabline_font(void)
  * Invoked when a setting was changed.
  */
     static LRESULT CALLBACK
-_OnSettingChange(UINT param)
+_OnSettingChange(UINT n)
 {
-    switch (param)
-    {
-	case SPI_SETWHEELSCROLLLINES:
-	    mouse_set_vert_scroll_step(mouse_vertical_scroll_step());
-	    break;
-	case SPI_SETWHEELSCROLLCHARS:
-	    mouse_set_hor_scroll_step(mouse_horizontal_scroll_step());
-	    break;
-	case SPI_SETNONCLIENTMETRICS:
-	    set_tabline_font();
-	    break;
-	default:
-	    break;
-    }
+    if (n == SPI_SETWHEELSCROLLLINES)
+	SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0,
+		&mouse_scroll_lines, 0);
+    if (n == SPI_SETNONCLIENTMETRICS)
+	set_tabline_font();
     return 0;
 }
 
@@ -4416,10 +4304,9 @@ static HWND hwndTip = NULL;
     static void
 show_sizing_tip(int cols, int rows)
 {
-    TOOLINFOA ti;
+    TOOLINFOA ti = {sizeof(ti)};
     char buf[32];
 
-    ti.cbSize = sizeof(ti);
     ti.hwnd = s_hwnd;
     ti.uId = (UINT_PTR)s_hwnd;
     ti.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
@@ -4684,7 +4571,7 @@ _OnMenuSelect(HWND hwnd, WPARAM wParam, LPARAM lParam)
     if (((UINT) HIWORD(wParam)
 		& (0xffff ^ (MF_MOUSESELECT + MF_BITMAP + MF_POPUP)))
 	    == MF_HILITE
-	    && (State & MODE_CMDLINE) == 0)
+	    && (State & CMDLINE) == 0)
     {
 	UINT	    idButton;
 	vimmenu_T   *pMenu;
@@ -4717,7 +4604,7 @@ _OnMenuSelect(HWND hwnd, WPARAM wParam, LPARAM lParam)
 #endif
 
     static LRESULT
-_OnDpiChanged(HWND hwnd, UINT xdpi UNUSED, UINT ydpi, RECT *rc UNUSED)
+_OnDpiChanged(HWND hwnd, UINT xdpi, UINT ydpi, RECT *rc)
 {
     s_dpi = ydpi;
     s_in_dpichanged = TRUE;
@@ -4747,8 +4634,10 @@ _WndProc(
     WPARAM wParam,
     LPARAM lParam)
 {
-    // ch_log(NULL, "WndProc: hwnd = %08x, msg = %x, wParam = %x, lParam = %x",
-	    // hwnd, uMsg, wParam, lParam);
+    /*
+    TRACE("WndProc: hwnd = %08x, msg = %x, wParam = %x, lParam = %x\n",
+	  hwnd, uMsg, wParam, lParam);
+    */
 
     HandleMouseHide(uMsg, lParam);
 
@@ -4800,6 +4689,20 @@ _WndProc(
 	}
 	break;
 
+    case WM_KEYUP:
+	// handle CTRL-/
+	if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 && wParam == 0xBF)
+	{
+	    char_u string[4];
+
+	    string[0] = CSI;
+	    string[1] = KS_MODIFIER;
+	    string[2] = MOD_MASK_CTRL;
+	    string[3] = 0x2F;
+	    add_to_input_buf(string, 4);
+	}
+	return 0L;
+
     case WM_CHAR:
 	// Don't use HANDLE_MSG() for WM_CHAR, it truncates wParam to a single
 	// byte while we want the UTF-16 character value.
@@ -4846,8 +4749,7 @@ _WndProc(
 	return _DuringSizing((UINT)wParam, (LPRECT)lParam);
 
     case WM_MOUSEWHEEL:
-    case WM_MOUSEHWHEEL:
-	_OnMouseWheel(hwnd, wParam, lParam, uMsg == WM_MOUSEHWHEEL);
+	_OnMouseWheel(hwnd, HIWORD(wParam));
 	return 0L;
 
 	// Notification for change in SystemParametersInfo()
@@ -5187,12 +5089,12 @@ load_dpi_func(void)
     if (hUser32 == NULL)
 	goto fail;
 
-    pGetDpiForSystem = (UINT (WINAPI *)(void))GetProcAddress(hUser32, "GetDpiForSystem");
-    pGetDpiForWindow = (UINT (WINAPI *)(HWND))GetProcAddress(hUser32, "GetDpiForWindow");
-    pGetSystemMetricsForDpi = (int (WINAPI *)(int, UINT))GetProcAddress(hUser32, "GetSystemMetricsForDpi");
+    pGetDpiForSystem = (void*)GetProcAddress(hUser32, "GetDpiForSystem");
+    pGetDpiForWindow = (void*)GetProcAddress(hUser32, "GetDpiForWindow");
+    pGetSystemMetricsForDpi = (void*)GetProcAddress(hUser32, "GetSystemMetricsForDpi");
     //pGetWindowDpiAwarenessContext = (void*)GetProcAddress(hUser32, "GetWindowDpiAwarenessContext");
-    pSetThreadDpiAwarenessContext = (DPI_AWARENESS_CONTEXT (WINAPI *)(DPI_AWARENESS_CONTEXT))GetProcAddress(hUser32, "SetThreadDpiAwarenessContext");
-    pGetAwarenessFromDpiAwarenessContext = (DPI_AWARENESS (WINAPI *)(DPI_AWARENESS_CONTEXT))GetProcAddress(hUser32, "GetAwarenessFromDpiAwarenessContext");
+    pSetThreadDpiAwarenessContext = (void*)GetProcAddress(hUser32, "SetThreadDpiAwarenessContext");
+    pGetAwarenessFromDpiAwarenessContext = (void*)GetProcAddress(hUser32, "GetAwarenessFromDpiAwarenessContext");
 
     if (pSetThreadDpiAwarenessContext != NULL)
     {
@@ -5674,8 +5576,8 @@ _OnImeNotify(HWND hWnd, DWORD dwCommand, DWORD dwData UNUSED)
 		im_set_position(gui.row, gui.col);
 
 		// Disable langmap
-		State &= ~MODE_LANGMAP;
-		if (State & MODE_INSERT)
+		State &= ~LANGMAP;
+		if (State & INSERT)
 		{
 # if defined(FEAT_KEYMAP)
 		    // Unshown 'keymap' in status lines
@@ -5712,6 +5614,8 @@ _OnImeComposition(HWND hwnd, WPARAM dbcs UNUSED, LPARAM param)
 {
     char_u	*ret;
     int		len;
+
+    if (ans_file) { fprintf(ans_file, "_OnImeComposition\n"); fflush(ans_file); }
 
     if ((param & GCS_RESULTSTR) == 0) // Composition unfinished.
 	return 0;
@@ -7880,9 +7784,8 @@ initialise_toolbar(void)
 update_toolbar_size(void)
 {
     int		w, h;
-    TBMETRICS	tbm;
+    TBMETRICS	tbm = {sizeof(TBMETRICS)};
 
-    tbm.cbSize = sizeof(TBMETRICS);
     tbm.dwMask = TBMF_PAD | TBMF_BUTTONSPACING;
     SendMessage(s_toolbarhwnd, TB_GETMETRICS, 0, (LPARAM)&tbm);
     //TRACE("Pad: %d, %d", tbm.cxPad, tbm.cyPad);
@@ -8125,27 +8028,27 @@ dyn_imm_load(void)
 	return;
 
     pImmGetCompositionStringW
-	    = (LONG (WINAPI *)(HIMC, DWORD, LPVOID, DWORD))GetProcAddress(hLibImm, "ImmGetCompositionStringW");
+	    = (void *)GetProcAddress(hLibImm, "ImmGetCompositionStringW");
     pImmGetContext
-	    = (HIMC (WINAPI *)(HWND))GetProcAddress(hLibImm, "ImmGetContext");
+	    = (void *)GetProcAddress(hLibImm, "ImmGetContext");
     pImmAssociateContext
-	    = (HIMC (WINAPI *)(HWND, HIMC))GetProcAddress(hLibImm, "ImmAssociateContext");
+	    = (void *)GetProcAddress(hLibImm, "ImmAssociateContext");
     pImmReleaseContext
-	    = (BOOL (WINAPI *)(HWND, HIMC))GetProcAddress(hLibImm, "ImmReleaseContext");
+	    = (void *)GetProcAddress(hLibImm, "ImmReleaseContext");
     pImmGetOpenStatus
-	    = (BOOL (WINAPI *)(HIMC))GetProcAddress(hLibImm, "ImmGetOpenStatus");
+	    = (void *)GetProcAddress(hLibImm, "ImmGetOpenStatus");
     pImmSetOpenStatus
-	    = (BOOL (WINAPI *)(HIMC, BOOL))GetProcAddress(hLibImm, "ImmSetOpenStatus");
+	    = (void *)GetProcAddress(hLibImm, "ImmSetOpenStatus");
     pImmGetCompositionFontW
-	    = (BOOL (WINAPI *)(HIMC, LPLOGFONTW))GetProcAddress(hLibImm, "ImmGetCompositionFontW");
+	    = (void *)GetProcAddress(hLibImm, "ImmGetCompositionFontW");
     pImmSetCompositionFontW
-	    = (BOOL (WINAPI *)(HIMC, LPLOGFONTW))GetProcAddress(hLibImm, "ImmSetCompositionFontW");
+	    = (void *)GetProcAddress(hLibImm, "ImmSetCompositionFontW");
     pImmSetCompositionWindow
-	    = (BOOL (WINAPI *)(HIMC, LPCOMPOSITIONFORM))GetProcAddress(hLibImm, "ImmSetCompositionWindow");
+	    = (void *)GetProcAddress(hLibImm, "ImmSetCompositionWindow");
     pImmGetConversionStatus
-	    = (BOOL (WINAPI *)(HIMC, LPDWORD, LPDWORD))GetProcAddress(hLibImm, "ImmGetConversionStatus");
+	    = (void *)GetProcAddress(hLibImm, "ImmGetConversionStatus");
     pImmSetConversionStatus
-	    = (BOOL (WINAPI *)(HIMC, DWORD, DWORD))GetProcAddress(hLibImm, "ImmSetConversionStatus");
+	    = (void *)GetProcAddress(hLibImm, "ImmSetConversionStatus");
 
     if (       pImmGetCompositionStringW == NULL
 	    || pImmGetContext == NULL
@@ -8617,44 +8520,5 @@ netbeans_draw_multisign_indicator(int row)
     SetPixel(s_hdc, x+2, y, gui.currFgColor);
     SetPixel(s_hdc, x+3, y++, gui.currFgColor);
     SetPixel(s_hdc, x+2, y, gui.currFgColor);
-}
-#endif
-
-#if defined(FEAT_EVAL) || defined(PROTO)
-    int
-test_gui_w32_sendevent(dict_T *args)
-{
-    char_u	*event;
-    INPUT	inputs[1];
-
-    event = dict_get_string(args, "event", TRUE);
-    if (event == NULL)
-	return FALSE;
-
-    ZeroMemory(inputs, sizeof(inputs));
-
-    if (STRICMP(event, "keydown") == 0 || STRICMP(event, "keyup") == 0)
-    {
-	WORD	    vkCode;
-
-	vkCode = dict_get_number_def(args, "keycode", 0);
-	if (vkCode <= 0 || vkCode >= 0xFF)
-	{
-	    semsg(_(e_invalid_argument_nr), (long)vkCode);
-	    return FALSE;
-	}
-
-	inputs[0].type = INPUT_KEYBOARD;
-	inputs[0].ki.wVk = vkCode;
-	if (STRICMP(event, "keyup") == 0)
-	    inputs[0].ki.dwFlags = KEYEVENTF_KEYUP;
-	SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
-    }
-    else
-	semsg(_(e_invalid_argument_str), event);
-
-    vim_free(event);
-
-    return TRUE;
 }
 #endif
