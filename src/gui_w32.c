@@ -970,6 +970,8 @@ _OnSysChar(
     // that the system distinguishes Alt-a and Alt-A (Alt-Shift-a unless
     // CAPSLOCK is pressed) at this point.
     modifiers = get_active_modifiers();
+    //modifiers |= MOD_MASK_ALT;
+
     if (ans_file) { fprintf(ans_file, "SYS b simlpl_k: %d, %d; ", ch, modifiers); }
     ch = simplify_key(ch, &modifiers);
     if (ans_file) { fprintf(ans_file, "a: %d, %d; ", ch, modifiers); }
@@ -8906,6 +8908,49 @@ test_gui_w32_sendevent(dict_T *args)
 	if (STRICMP(event, "keyup") == 0)
 	    inputs[0].ki.dwFlags = KEYEVENTF_KEYUP;
 	SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
+    }
+    else if (STRICMP(event, "raltkeydown") == 0 || STRICMP(event, "raltkeyup") == 0)
+    {
+	int isDown = (STRICMP(event, "raltkeydown") == 0);
+	//WORD	    vkCode;
+	//BYTE state[256];
+	//memset(state, 0, sizeof(state));
+
+	//vkCode = dict_get_number_def(args, "keycode", 0);
+	//if (vkCode <= 0 || vkCode >= 0xFF)
+	//{
+	//    semsg(_(e_invalid_argument_nr), (long)vkCode);
+	//    return FALSE;
+	//}
+	//if (STRICMP(event, "raltkeydown") == 0) {
+	//    state[VK_RMENU] = 0x80;
+	//    state[VK_MENU] = 0x80;
+	//    SetKeyboardState(state);
+	//}
+
+	//inputs[0].type = INPUT_KEYBOARD;
+	//inputs[0].ki.wVk = VK_RMENU;
+	//if (STRICMP(event, "raltkeyup") == 0)
+	//    inputs[0].ki.dwFlags = KEYEVENTF_KEYUP;
+	//SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
+	//if (STRICMP(event, "raltkeyup") == 0) {
+	//    SetKeyboardState(state);
+	//}
+
+	//INPUT createScanCodeEvent(WORD scancode, bool isDown)
+	if (1)
+	{
+	    INPUT input = {};
+	    input.type = INPUT_KEYBOARD;
+	    input.ki.wVk = 0;
+	    input.ki.wScan = 0xE038; // scan code of right alt
+	    input.ki.dwFlags = (isDown ? 0 : KEYEVENTF_KEYUP) | KEYEVENTF_SCANCODE;
+	    input.ki.time = 0;
+	    input.ki.dwExtraInfo = 0;
+	    //return input;
+	    SendInput(sizeof(input), &input, sizeof(input));
+	}
+
     }
     else
 	semsg(_(e_invalid_argument_str), event);
