@@ -8554,6 +8554,63 @@ test_gui_w32_sendevent(dict_T *args)
 	    inputs[0].ki.dwFlags = KEYEVENTF_KEYUP;
 	SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
     }
+    else if (STRICMP(event, "raltkeydown") == 0 || STRICMP(event, "raltkeyup") == 0)
+    {
+	int isDown = (STRICMP(event, "raltkeydown") == 0);
+	//WORD	    vkCode;
+	//BYTE state[256];
+	//memset(state, 0, sizeof(state));
+
+	//vkCode = dict_get_number_def(args, "keycode", 0);
+	//if (vkCode <= 0 || vkCode >= 0xFF)
+	//{
+	//    semsg(_(e_invalid_argument_nr), (long)vkCode);
+	//    return FALSE;
+	//}
+	//if (STRICMP(event, "raltkeydown") == 0) {
+	//    state[VK_RMENU] = 0x80;
+	//    state[VK_MENU] = 0x80;
+	//    SetKeyboardState(state);
+	//}
+
+	//inputs[0].type = INPUT_KEYBOARD;
+	//inputs[0].ki.wVk = VK_RMENU;
+	//if (STRICMP(event, "raltkeyup") == 0)
+	//    inputs[0].ki.dwFlags = KEYEVENTF_KEYUP;
+	//SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
+	//if (STRICMP(event, "raltkeyup") == 0) {
+	//    SetKeyboardState(state);
+	//}
+
+	//INPUT createScanCodeEvent(WORD scancode, bool isDown)
+	if (1)
+	{
+	    INPUT i2[2] = {};
+	    INPUT input;
+
+	    input.type = INPUT_KEYBOARD;
+	    input.ki.wVk = 0;
+	    input.ki.wScan = 0xE0; // scan code of right alt (or E038?)
+	    input.ki.dwFlags = (isDown ? 0 : KEYEVENTF_KEYUP) | KEYEVENTF_SCANCODE;
+	    input.ki.time = 0;
+	    input.ki.dwExtraInfo = 0;
+	    i2[0] = input;
+
+	    input.type = INPUT_KEYBOARD;
+	    input.ki.wVk = 0;
+	    input.ki.wScan = 0x38; // scan code of right alt (or E038?)
+	    input.ki.dwFlags = (isDown ? 0 : KEYEVENTF_KEYUP) | KEYEVENTF_SCANCODE;
+	    input.ki.time = 0;
+	    input.ki.dwExtraInfo = 0;
+	    i2[1] = input;
+
+
+
+	    //return input;
+	    SendInput(2, i2, sizeof(i2[0]));
+	}
+
+    }
     else
 	semsg(_(e_invalid_argument_str), event);
 
