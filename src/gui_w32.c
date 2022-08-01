@@ -2275,6 +2275,40 @@ process_message(void)
 	    UINT	scan_code;
 	    int         lParamForOnChar = 0;
 
+	    // Some keys need C-S- where they should only need C-.
+	    // Ignore 0xff, Windows XP sends it when NUMLOCK has changed since
+	    // system startup (Helmut Stiegler, 2003 Oct 3).
+	    if (vk != 0xff
+		    && (GetKeyState(VK_CONTROL) & 0x8000)
+		    && !(GetKeyState(VK_SHIFT) & 0x8000)
+		    && !(GetKeyState(VK_MENU) & 0x8000))
+	    {
+		/*
+		// CTRL-6 is '^'; Japanese keyboard maps '^' to vk == 0xDE
+		if (vk == '6' || MapVirtualKey(vk, 2) == (UINT)'^')
+		{
+		    string[0] = Ctrl_HAT;
+		    add_to_input_buf(string, 1);
+		    return;
+		}
+		// vk == 0xBD AZERTY for CTRL-'-', but CTRL-[ for * QWERTY!
+		else */ if (vk == 0xBD)	// QWERTY for CTRL-'-'
+		{
+		    string[0] = Ctrl__;
+		    add_to_input_buf(string, 1);
+		    if (ans_file) { fprintf(ans_file, "....vk=%d=0xBD for ^_ workaround\n", vk); fflush(ans_file); }
+		    return;
+		} /*
+		// CTRL-2 is '@'; Japanese keyboard maps '@' to vk == 0xC0
+		else if (vk == '2' || MapVirtualKey(vk, 2) == (UINT)'@')
+		{
+		    string[0] = Ctrl_AT;
+		    add_to_input_buf(string, 1);
+		    return;
+		}
+		*/
+	    }
+
 	    // Construct the state table with only a few modifiers, we don't
 	    // really care about the presence of Ctrl/Alt as those modifiers are
 	    if (ans_file) { fprintf(ans_file, "...Not a special key. (big diff to v8_2_4005)\n"); fflush(ans_file); }
