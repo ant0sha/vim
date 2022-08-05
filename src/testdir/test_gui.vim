@@ -1690,4 +1690,150 @@ func Test_gui_lowlevel_keyevent()
   bw!
 endfunc
 
+func GetSendMyKeysSrc()
+
+  let lines =<< trim END
+    " help function for low-level keypresses simulation
+    func SendMyKeys(keylist)
+      let l:k = ""
+      let l:t = ""
+      for key in a:keylist
+        "echomsg "k[i]=".key
+        if l:k == ""
+          let l:k = key
+          "echomsg "l:k=".l:k
+        else
+          let l:t = key
+          "echomsg "l:t=".l:k
+        endif
+        if l:t != ""
+          if l:t == "du"
+            "echomsg "k=".l:k.", t=".l:t
+            call test_gui_event("sendevent", #{event: "keydown", keycode: l:k})
+            call test_gui_event("sendevent", #{event: "keyup", keycode: l:k})
+          endif
+          if l:t == "d"
+            call test_gui_event("sendevent", #{event: "keydown", keycode: l:k})
+          endif
+          if l:t == "u"
+            call test_gui_event("sendevent", #{event: "keyup", keycode: l:k})
+          endif
+          let l:t=""
+          let l:k=""
+        endif
+      endfor
+    endfunc
+  END
+
+  return lines
+
+endfunc
+
+" Test for "GVim 9.0 on Windows does not recognize the right Alt key #10826"
+func Test_GUI_lowlvl_RAlt_Combo()
+  CheckMSWindows
+  new
+
+  " RAlt(18) / down
+  call test_gui_event("sendevent", #{event: "raltkeydown", keycode: -918})
+  " 68 "d" / down, up
+  call test_gui_event("sendevent", #{event: "keydown", keycode: 68})
+  call test_gui_event("sendevent", #{event: "keyup",   keycode: 68})
+  " 68 "d" / down, up
+  call test_gui_event("sendevent", #{event: "keydown", keycode: 68})
+  call test_gui_event("sendevent", #{event: "keyup",   keycode: 68})
+  " 68 "d" / down, up
+  call test_gui_event("sendevent", #{event: "keydown", keycode: 68})
+  call test_gui_event("sendevent", #{event: "keyup",   keycode: 68})
+  " RAlt(18) / up
+  call test_gui_event("sendevent", #{event: "raltkeyup", keycode: -918})
+
+  let ch = getcharstr()
+  let mod = getcharmod()
+
+  "Crtl: a2buf: {155=0x9b(CSI), 252=0xfc, 4=0x04}
+  "-NOK: a2buf: {45=0x2d}
+  "_ OK: a2buf: {95=0x5f}
+
+
+  " although CSI 0x9b is inserted, getchastr() replaces first byte with
+  " K_SPECIAL 0x80
+  "call assert_equal("\x80\xfc\x04\x5f", ch)
+  "call assert_equal(4, mod)
+  " Hm but we add ^_ directly without any CSI sequences
+  "
+  " 155, 252, 8, 100 => 9b fc 08 64
+  "
+  " ä <a4>
+  "call assert_equal("ä\xa4'", ch)
+  "call assert_equal("\x9b\xfc\x08\x64", ch)
+  "call assert_equal("\x80\xfc\x08\x64", ch)
+   call assert_equal("\xc3\xa4\xc3\xa4\xc3\xa4", ch)
+  call assert_equal(0, mod)
+  bw!
+
+  call setline(1, ch)
+
+endfunc
+
+" Another test for
+" "GVim 9.0 on Windows does not recognize the right Alt key #10826"
+func Test_GUI_lowlvl_RAlt_Combo_Ex()
+  CheckMSWindows
+  new
+
+  call delete('Xresult_unique2')
+  call delete('Xlines')
+
+  let sendmykeys_src = GetSendMyKeysSrc()
+
+  let lines =<< trim END
+    imap <C-_> BINGO
+
+    " <i>
+    call SendMyKeys([73,"du"])
+    " RAlt(18) / down
+    "call SendMyKeys([18,"d"])
+    call test_gui_event("sendevent", #{event: "raltkeydown", keycode: -918})
+    " ddddd
+    call SendMyKeys([68,"du", 68,"du", 68,"du", 68,"du", 68,"du"])
+    " RAlt(18) / up
+    "call SendMyKeys([18,"u"])
+    call test_gui_event("sendevent", #{event: "raltkeyup", keycode: -918})
+    " ESC
+    call SendMyKeys([27,"du"])
+
+    " <shift ':' shift up 'c' 'a' 'l' 'l' space>
+    call SendMyKeys([16,"d",186,"du",16,"u",67,"du",65,"du",76,"du",76,"du",32,"du"])
+
+    " <shift v m i (57 )48 shift up ENTER>
+    call SendMyKeys([16,"d", 86, "du", 77, "du", 73, "du", 57, "du", 48, "du", 16, "u", 13, "du"])
+
+    func VMI()
+      write! Xresult_unique2
+      bw!
+      quit
+    endfunction
+  END
+
+  call writefile(sendmykeys_src + lines, 'Xlines')
+
+  let prefix = '!'
+  if has('win32')
+    let prefix = '!start '
+  endif
+  execute prefix .. GetVimCommand() .. ' -g -N -u NONE -S Xlines'
+
+  call WaitForAssert({-> assert_true(filereadable('Xresult_unique2'))})
+  edit Xresult_unique2
+
+  call assert_equal("äääää"      , getline(1)) 
+  " ^_ is 0x1f byte
+  call assert_equal("\x1f", getline(2)) 
+
+  bw!
+  "call delete('Xresult_unique2')
+  "call delete('Xlines')
+endfunc
+
 " vim: shiftwidth=2 sts=2 expandtab
