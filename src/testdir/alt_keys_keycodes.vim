@@ -1,50 +1,19 @@
 function! AnsAltKey()
   echomsg "Started @ " . strftime("%Y-%m-%d %H:%M:%S")
 
-	"	nmap \cc <a-d>
-	"normal \cc
-	"let lst=[
-	"			\   [ "LIST", ["LEFT", "UP", "DOWN", "RIGHT"]]
-  "      \ , [ "LIST", ["Insert", "Del", "Home", "End", "PageUp", "PageDown" ]]
-	"			\ ]
-
-"<kHome>	   
-"<kEnd>	   
-"<kPageUp>  
-"<kPageDown>
-"<kPlus>	   
-"<kMinus>   
-"<kMultiply>
-"<kDivide>  
-"<kEnter>   
-"<kPoint>   
-"<k0>
-"<k1>
-"<k2>
-"<k3>
-"<k4>
-"<k5>
-"<k6>
-"<k7>
-"<k8>
-"<k9>
-
-
+  ene
 
 	let lst=[
-	 			\   [ "", "`1234567890-=", "B","S" ]
+				\   [ "LIST", ["LEFT", "UP", "DOWN", "RIGHT"]]
+        \ , [ "LIST", ["Insert", "Del", "Home", "End", "PageUp", "PageDown" ]]
+        \ , [ "LIST", ["kHome", "kEnd", "kPageUp", "kPageDown", "kPlus", "kMinus", "kMultiply", "kDivide", "kEnter", "kPoint"]]
+				\ , [ "k","0123456789" ]
+				\ , [ "ES","C", "F","123456789", "F1","0", "F1","1", "F1","2" ]
+				\ , [ "", "`1234567890-=", "B","S" ]
+				\ , [ "", "qwertyuiop[]"    ]
+				\ , [ "", "asdfghjkl;'\\" ]
+				\ , [ "", "zxcvbnm,./" ]
 				\ ]
-
-
-	"let lst=[
-	"			\   [ "LIST", ["LEFT", "UP", "DOWN", "RIGHT"]]
-  "      \ , [ "LIST", ["Insert", "Del", "Home", "End", "PageUp", "PageDown" ]]
-	"			\ , [ "ES","C", "F","123456789", "F1","0", "F1","1", "F1","2" ]
-	"			\ , [ "", "`1234567890-=", "B","S" ]
-	"			\ , [ "", "qwertyuiop[]"    ]
-	"			\ , [ "", "asdfghjkl;'\\" ]
-	"			\ , [ "", "zxcvbnm,./" ]
-	"			\ ]
 
 	let lnr=1
 	for prefix_n_str0 in lst
@@ -88,6 +57,8 @@ function! AnsAltKey()
 			call setline(lnr, allmod)  | let lnr+=1
 		endfor
 	endfor
+
+  w! AnsAltKey_out.txt
 
   echomsg "Done @ " . strftime("%Y-%m-%d %H:%M:%S")
 endfunc
