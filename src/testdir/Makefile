@@ -3,9 +3,9 @@
 #
 
 # Use console or GUI.
-VIMPROG = ../vim
+# VIMPROG = ../vim
 XXDPROG = ../xxd/xxd
-# VIMPROG = ../gvim
+VIMPROG = ../gvim
 
 SCRIPTSOURCE = ../../runtime
 
